@@ -1565,6 +1565,8 @@ function toNpc(doc: Document): NpcEntry {
     level: typeof doc.level === 'number' && Number.isFinite(doc.level) ? doc.level : 1,
     image: text(doc.image),
     imageFrame: toNpcFrame(doc.imageFrame),
+    // Sin imageFrameCircle (NPCs antiguos) = foto vinculada.
+    imageFrameCircle: toNpcFrame(doc.imageFrameCircle),
     background: typeof doc.background === 'string' && doc.background ? doc.background : null,
     description: text(doc.description),
     stats: doc.stats && typeof doc.stats === 'object' && !Array.isArray(doc.stats) ? doc.stats as NpcInput['stats'] : {},

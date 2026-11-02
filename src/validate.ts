@@ -1544,6 +1544,18 @@ function parseNpcImageFrame(value: unknown): NpcImageFrame | null {
   return frame.x === 50 && frame.y === 50 && frame.zoom === 1 ? null : frame;
 }
 
+/** Encuadre propio del círculo (tarjeta). null = vinculado al de la ficha; si es objeto se guarda tal cual (aunque esté centrado). */
+function parseNpcCircleFrame(value: unknown): NpcImageFrame | null {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== 'object' || Array.isArray(value)) throw new HttpError(400, 'imageFrameCircle tiene que ser un objeto { x, y, zoom } o null');
+  const source = value as Record<string, unknown>;
+  return {
+    x: frameNumber(source.x, 'x', 0, 100, 50),
+    y: frameNumber(source.y, 'y', 0, 100, 50),
+    zoom: frameNumber(source.zoom, 'zoom', NPC_ZOOM_MIN, NPC_ZOOM_MAX, 1),
+  };
+}
+
 export type NpcInput = {
   name: string;
   kind: NpcKind;
@@ -1554,6 +1566,8 @@ export type NpcInput = {
   image: string;
   /** Encuadre de la foto (object-position + zoom). null = centrada. */
   imageFrame: NpcImageFrame | null;
+  /** Encuadre de la tarjeta (círculo). null = vinculado: usa imageFrame. */
+  imageFrameCircle: NpcImageFrame | null;
   background: string | null;
   description: string;
   stats: NpcStats;
@@ -1619,7 +1633,7 @@ function parseNpcAbilities(value: unknown): NpcAbility[] {
 }
 
 /**
- * POST /api/npcs: { name, kind?, type?, region?, level?, image?, imageFrame? {x,y,zoom}, background?, description?, stats?, abilities?, visible? }.
+ * POST /api/npcs: { name, kind?, type?, region?, level?, image?, imageFrame? {x,y,zoom}, imageFrameCircle? {x,y,zoom}|null, background?, description?, stats?, abilities?, visible? }.
  * Con partial (PATCH) todos opcionales; abilities/stats se sustituyen enteros.
  */
 export function parseNpcInput(body: unknown, partial: true): Partial<NpcInput>;
@@ -1650,6 +1664,7 @@ export function parseNpcInput(body: unknown, partial = false): Partial<NpcInput>
   } else if (!partial) out.level = 1;
   if (has('image') || !partial) out.image = boundedText(source.image, 'La URL de la foto', NPC_URL_MAX);
   if (has('imageFrame') || !partial) out.imageFrame = parseNpcImageFrame(source.imageFrame);
+  if (has('imageFrameCircle') || !partial) out.imageFrameCircle = parseNpcCircleFrame(source.imageFrameCircle);
   if (has('background') || source.background === null || !partial) {
     out.background = boundedText(source.background, 'La URL del fondo', NPC_URL_MAX) || null;
   }
