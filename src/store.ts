@@ -1542,6 +1542,13 @@ export type NpcEntry = NpcInput & { id: string; createdAt: string; updatedAt?: s
 
 const MISSING_NPC = 'No existe ese NPC';
 
+function toNpcFrame(value: unknown): NpcInput['imageFrame'] {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const { x, y, zoom } = value as Record<string, unknown>;
+  const num = (raw: unknown, fallback: number) => (typeof raw === 'number' && Number.isFinite(raw) ? raw : fallback);
+  return { x: num(x, 50), y: num(y, 50), zoom: num(zoom, 1) };
+}
+
 function toNpc(doc: Document): NpcEntry {
   const created = doc.createdAt instanceof Date
     ? doc.createdAt
@@ -1557,6 +1564,7 @@ function toNpc(doc: Document): NpcEntry {
     region: text(doc.region),
     level: typeof doc.level === 'number' && Number.isFinite(doc.level) ? doc.level : 1,
     image: text(doc.image),
+    imageFrame: toNpcFrame(doc.imageFrame),
     background: typeof doc.background === 'string' && doc.background ? doc.background : null,
     description: text(doc.description),
     stats: doc.stats && typeof doc.stats === 'object' && !Array.isArray(doc.stats) ? doc.stats as NpcInput['stats'] : {},

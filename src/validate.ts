@@ -1518,6 +1518,32 @@ export type NpcAbility = {
   effect?: ChampionAbilityEffect[];
 };
 
+/** Encuadre de la foto: punto focal (0-100 %) y zoom (1 = sin zoom). */
+export type NpcImageFrame = { x: number; y: number; zoom: number };
+export const NPC_ZOOM_MIN = 1;
+export const NPC_ZOOM_MAX = 4;
+
+function frameNumber(raw: unknown, field: string, min: number, max: number, fallback: number): number {
+  if (raw === undefined || raw === null) return fallback;
+  if (typeof raw !== 'number' || !Number.isFinite(raw) || raw < min || raw > max) {
+    throw new HttpError(400, `imageFrame.${field} tiene que ser un número entre ${min} y ${max}`);
+  }
+  return Math.round(raw * 100) / 100;
+}
+
+/** null / centrado sin zoom = sin encuadre propio. */
+function parseNpcImageFrame(value: unknown): NpcImageFrame | null {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== 'object' || Array.isArray(value)) throw new HttpError(400, 'imageFrame tiene que ser un objeto { x, y, zoom }');
+  const source = value as Record<string, unknown>;
+  const frame: NpcImageFrame = {
+    x: frameNumber(source.x, 'x', 0, 100, 50),
+    y: frameNumber(source.y, 'y', 0, 100, 50),
+    zoom: frameNumber(source.zoom, 'zoom', NPC_ZOOM_MIN, NPC_ZOOM_MAX, 1),
+  };
+  return frame.x === 50 && frame.y === 50 && frame.zoom === 1 ? null : frame;
+}
+
 export type NpcInput = {
   name: string;
   kind: NpcKind;
@@ -1526,6 +1552,8 @@ export type NpcInput = {
   region: string;
   level: number;
   image: string;
+  /** Encuadre de la foto (object-position + zoom). null = centrada. */
+  imageFrame: NpcImageFrame | null;
   background: string | null;
   description: string;
   stats: NpcStats;
@@ -1591,7 +1619,7 @@ function parseNpcAbilities(value: unknown): NpcAbility[] {
 }
 
 /**
- * POST /api/npcs: { name, kind?, type?, region?, level?, image?, background?, description?, stats?, abilities?, visible? }.
+ * POST /api/npcs: { name, kind?, type?, region?, level?, image?, imageFrame? {x,y,zoom}, background?, description?, stats?, abilities?, visible? }.
  * Con partial (PATCH) todos opcionales; abilities/stats se sustituyen enteros.
  */
 export function parseNpcInput(body: unknown, partial: true): Partial<NpcInput>;
@@ -1621,6 +1649,7 @@ export function parseNpcInput(body: unknown, partial = false): Partial<NpcInput>
     out.level = source.level;
   } else if (!partial) out.level = 1;
   if (has('image') || !partial) out.image = boundedText(source.image, 'La URL de la foto', NPC_URL_MAX);
+  if (has('imageFrame') || !partial) out.imageFrame = parseNpcImageFrame(source.imageFrame);
   if (has('background') || source.background === null || !partial) {
     out.background = boundedText(source.background, 'La URL del fondo', NPC_URL_MAX) || null;
   }
