@@ -1,7 +1,7 @@
 import { HttpError } from '../errors';
 import { assertWriteAccess, queryValue, withErrors, type ApiRequest } from '../http';
-import { createNpc, deleteNpc, getNpc, listNpcs, updateNpc } from '../store';
-import { parseNpcInput } from '../validate';
+import { createNpc, deleteNpc, getNpc, listNpcs, updateNpc, type NpcEntry } from '../store';
+import { NPC_DESCRIPTION_MAX, parseNpcInput } from '../validate';
 import { withLive } from '../livePublish';
 
 /** Rol blando (localStorage) que manda el cliente; igual de confiable que el resto de la app. */
@@ -13,6 +13,46 @@ function isAdmin(req: ApiRequest): boolean {
 
 function assertAdminRole(req: ApiRequest): void {
   if (!isAdmin(req)) throw new HttpError(403, 'Solo el admin puede gestionar los NPCs');
+}
+
+/** Lo único que un player puede editar de un NPC visible: la descripción (vida, resistencias… van dentro del texto). */
+const PLAYER_FIELDS = new Set(['id', 'description']);
+
+/** Ficha reducida para players: nombre y foto para reconocerlo + descripción; sin habilidades, stats ni el resto de datos. */
+function forPlayer(npc: NpcEntry): NpcEntry {
+  return {
+    id: npc.id,
+    name: npc.name,
+    kind: 'npc',
+    type: '',
+    region: '',
+    level: 0,
+    image: npc.image,
+    imageFrame: npc.imageFrame,
+    imageFrameCircle: npc.imageFrameCircle,
+    background: npc.background,
+    description: npc.description,
+    stats: {},
+    abilities: [],
+    visible: npc.visible,
+    createdAt: npc.createdAt,
+    ...(npc.updatedAt ? { updatedAt: npc.updatedAt } : {}),
+  };
+}
+
+/** PATCH de un player: solo description. Cualquier otro campo se rechaza. */
+function parsePlayerPatch(body: unknown): { description: string } {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) throw new HttpError(400, 'Cuerpo inválido');
+  const source = body as Record<string, unknown>;
+  if (Object.keys(source).some(key => !PLAYER_FIELDS.has(key))) {
+    throw new HttpError(403, 'Los players solo pueden editar la descripción');
+  }
+  if (!('description' in source)) throw new HttpError(400, 'No hay campos para actualizar');
+  const raw = source.description ?? '';
+  if (typeof raw !== 'string') throw new HttpError(400, 'La descripción tiene que ser un texto');
+  const text = raw.trim();
+  if (text.length > NPC_DESCRIPTION_MAX) throw new HttpError(400, `La descripción admite como máximo ${NPC_DESCRIPTION_MAX} caracteres`);
+  return { description: text };
 }
 
 function npcId(req: ApiRequest, required = true): string | undefined {
@@ -28,7 +68,9 @@ function npcId(req: ApiRequest, required = true): string | undefined {
  * /api/npcs (y /api/npcs/:id)
  * GET            lista (los players solo reciben los visibles) · ?id= uno
  * POST           crea (admin)
- * PATCH ?id=     edita campos sueltos; abilities/stats se sustituyen enteros (admin)
+ * PATCH ?id=     admin: edita campos sueltos; abilities/stats se sustituyen enteros.
+ *                player: solo description de un NPC visible
+ * Los players reciben una ficha reducida (nombre, foto y descripción; sin habilidades, stats, tipo, región ni nivel).
  * DELETE ?id=    borra (admin)
  */
 export default withLive({ POST: ['npcs'], PATCH: ['npcs'], DELETE: ['npcs'] }, withErrors(async (req, res) => {
@@ -38,11 +80,11 @@ export default withLive({ POST: ['npcs'], PATCH: ['npcs'], DELETE: ['npcs'] }, w
     if (id) {
       const npc = await getNpc(id);
       if (!admin && !npc.visible) throw new HttpError(404, 'No existe ese NPC');
-      res.status(200).json(npc);
+      res.status(200).json(admin ? npc : forPlayer(npc));
       return;
     }
     const list = await listNpcs();
-    res.status(200).json(admin ? list : list.filter(npc => npc.visible));
+    res.status(200).json(admin ? list : list.filter(npc => npc.visible).map(forPlayer));
     return;
   }
   if (req.method === 'POST') {
@@ -53,8 +95,13 @@ export default withLive({ POST: ['npcs'], PATCH: ['npcs'], DELETE: ['npcs'] }, w
   }
   if (req.method === 'PATCH') {
     assertWriteAccess(req);
-    assertAdminRole(req);
     const id = npcId(req) as string;
+    if (!isAdmin(req)) {
+      const current = await getNpc(id);
+      if (!current.visible) throw new HttpError(404, 'No existe ese NPC');
+      res.status(200).json(forPlayer(await updateNpc(id, parsePlayerPatch(req.body))));
+      return;
+    }
     const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body)
       ? Object.fromEntries(Object.entries(req.body as Record<string, unknown>).filter(([key]) => key !== 'id'))
       : req.body;

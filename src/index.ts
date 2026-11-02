@@ -117,7 +117,7 @@ app.get('/api/faq', adapt(faq));
 app.post('/api/faq', adapt(faq));
 app.patch('/api/faq', adapt(faq));
 app.delete('/api/faq', adapt(faq));
-// NPCs / Monstruos: leer cualquiera (players solo los visibles); crear/editar/borrar solo admin.
+// NPCs / Monstruos: leer cualquiera (players solo los visibles y en ficha reducida); crear/borrar solo admin; players solo editan la descripción.
 app.get('/api/npcs', adapt(npcs));
 app.post('/api/npcs', adapt(npcs));
 app.patch('/api/npcs', adapt(npcs));
