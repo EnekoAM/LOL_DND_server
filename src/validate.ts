@@ -1485,3 +1485,153 @@ export function parseFaqPatch(body: unknown): FaqPatch {
   if (Object.keys(patch).length === 0) throw new HttpError(400, 'No hay campos para actualizar');
   return patch;
 }
+
+// ── NPCs / Monstruos ──
+
+export const NPC_KINDS = ['npc', 'monstruo'] as const;
+export type NpcKind = (typeof NPC_KINDS)[number];
+export const NPC_STAT_KEYS = ['hp', 'mana', 'ac', 'mr', 'spe', 'ad', 'ap'] as const;
+export type NpcStatKey = (typeof NPC_STAT_KEYS)[number];
+export type NpcStats = Partial<Record<NpcStatKey, number>>;
+
+export const NPC_NAME_MAX = 80;
+export const NPC_TAG_MAX = 40;
+export const NPC_DESCRIPTION_MAX = 4000;
+export const NPC_URL_MAX = 2000;
+export const NPC_LEVEL_MIN = 0;
+export const NPC_LEVEL_MAX = 30;
+export const NPC_ABILITIES_MAX = 30;
+const NPC_ABILITY_LABEL_MAX = 20;
+const NPC_ABILITY_TEXT_MAX = 2000;
+const NPC_ABILITY_COST_MAX = 200;
+const NPC_ABILITY_ID = /^[a-z0-9-]{1,40}$/i;
+
+/** Habilidad libre de un NPC: como las de campeón pero sin slot fijo (P/Q/W/E/R). */
+export type NpcAbility = {
+  id: string;
+  name: string;
+  /** Etiqueta corta opcional (Pasiva, Ataque, Q, Fase 2…). */
+  label?: string;
+  description?: string;
+  cost?: string;
+  damage?: ChampionAbilityDamage;
+  effect?: ChampionAbilityEffect[];
+};
+
+export type NpcInput = {
+  name: string;
+  kind: NpcKind;
+  /** Tipo libre: Bestia, Mercader, No muerto… */
+  type: string;
+  region: string;
+  level: number;
+  image: string;
+  background: string | null;
+  description: string;
+  stats: NpcStats;
+  abilities: NpcAbility[];
+  /** Visible para los players (como «Activo» en campeones). */
+  visible: boolean;
+};
+
+function boundedText(value: unknown, field: string, max: number): string {
+  if (value === undefined || value === null) return '';
+  if (typeof value !== 'string') throw new HttpError(400, `${field} tiene que ser un texto`);
+  const text = value.trim();
+  if (text.length > max) throw new HttpError(400, `${field} admite como máximo ${max} caracteres`);
+  return text;
+}
+
+function randomAbilityId(): string {
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function parseNpcStats(value: unknown): NpcStats {
+  if (value === undefined || value === null) return {};
+  if (typeof value !== 'object' || Array.isArray(value)) throw new HttpError(400, 'stats tiene que ser un objeto');
+  const source = value as Record<string, unknown>;
+  const stats: NpcStats = {};
+  for (const key of NPC_STAT_KEYS) {
+    const raw = source[key];
+    if (raw === undefined || raw === null || raw === '') continue;
+    if (typeof raw !== 'number' || !Number.isFinite(raw)) throw new HttpError(400, `stats.${key} tiene que ser un número`);
+    stats[key] = raw;
+  }
+  return stats;
+}
+
+function parseNpcAbilities(value: unknown): NpcAbility[] {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) throw new HttpError(400, 'abilities tiene que ser una lista');
+  if (value.length > NPC_ABILITIES_MAX) throw new HttpError(400, `Como máximo ${NPC_ABILITIES_MAX} habilidades por NPC`);
+  const seen = new Set<string>();
+  return value.map((item, index) => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      throw new HttpError(400, `abilities[${index}] tiene que ser un objeto`);
+    }
+    const source = item as Record<string, unknown>;
+    const name = boundedText(source.name, 'El nombre de la habilidad', NPC_NAME_MAX);
+    if (!name) throw new HttpError(400, `La habilidad ${index + 1} necesita un nombre`);
+    let id = typeof source.id === 'string' && NPC_ABILITY_ID.test(source.id.trim()) ? source.id.trim() : randomAbilityId();
+    while (seen.has(id)) id = randomAbilityId();
+    seen.add(id);
+    const ability: NpcAbility = { id, name };
+    const label = boundedText(source.label, 'La etiqueta de la habilidad', NPC_ABILITY_LABEL_MAX);
+    const description = boundedText(source.description, 'La descripción de la habilidad', NPC_ABILITY_TEXT_MAX);
+    const cost = boundedText(source.cost, 'El coste de la habilidad', NPC_ABILITY_COST_MAX);
+    if (label) ability.label = label;
+    if (description) ability.description = description;
+    if (cost) ability.cost = cost;
+    const damage = parseDamage(source.damage ?? undefined);
+    if (damage) ability.damage = damage;
+    const effect = parseEffects(source.effect ?? undefined);
+    if (effect) ability.effect = effect;
+    return ability;
+  });
+}
+
+/**
+ * POST /api/npcs: { name, kind?, type?, region?, level?, image?, background?, description?, stats?, abilities?, visible? }.
+ * Con partial (PATCH) todos opcionales; abilities/stats se sustituyen enteros.
+ */
+export function parseNpcInput(body: unknown, partial: true): Partial<NpcInput>;
+export function parseNpcInput(body: unknown, partial?: false): NpcInput;
+export function parseNpcInput(body: unknown, partial = false): Partial<NpcInput> {
+  const source = asObject(body);
+  const out: Partial<NpcInput> = {};
+  const has = (key: string) => source[key] !== undefined;
+
+  if (has('name') || !partial) {
+    const name = boundedText(source.name, 'El nombre', NPC_NAME_MAX);
+    if (!name) throw new HttpError(400, 'Pon un nombre al NPC');
+    out.name = name;
+  }
+  if (has('kind') && source.kind !== null) {
+    if (typeof source.kind !== 'string' || !(NPC_KINDS as readonly string[]).includes(source.kind)) {
+      throw new HttpError(400, 'kind tiene que ser npc o monstruo');
+    }
+    out.kind = source.kind as NpcKind;
+  } else if (!partial) out.kind = 'npc';
+  if (has('type') || !partial) out.type = boundedText(source.type, 'El tipo', NPC_TAG_MAX);
+  if (has('region') || !partial) out.region = boundedText(source.region, 'La región', NPC_TAG_MAX);
+  if (has('level') && source.level !== null) {
+    if (typeof source.level !== 'number' || !Number.isInteger(source.level) || source.level < NPC_LEVEL_MIN || source.level > NPC_LEVEL_MAX) {
+      throw new HttpError(400, `El nivel tiene que ser un entero entre ${NPC_LEVEL_MIN} y ${NPC_LEVEL_MAX}`);
+    }
+    out.level = source.level;
+  } else if (!partial) out.level = 1;
+  if (has('image') || !partial) out.image = boundedText(source.image, 'La URL de la foto', NPC_URL_MAX);
+  if (has('background') || source.background === null || !partial) {
+    out.background = boundedText(source.background, 'La URL del fondo', NPC_URL_MAX) || null;
+  }
+  if (has('description') || !partial) out.description = boundedText(source.description, 'La descripción', NPC_DESCRIPTION_MAX);
+  if (has('stats') || !partial) out.stats = parseNpcStats(source.stats);
+  if (has('abilities') || !partial) out.abilities = parseNpcAbilities(source.abilities);
+  if (has('visible') && source.visible !== null) {
+    if (typeof source.visible !== 'boolean') throw new HttpError(400, 'visible tiene que ser verdadero o falso');
+    out.visible = source.visible;
+  } else if (!partial) out.visible = false;
+
+  if (partial && Object.keys(out).length === 0) throw new HttpError(400, 'No hay campos para actualizar');
+  return out;
+}

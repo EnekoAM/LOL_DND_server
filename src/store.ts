@@ -5,7 +5,7 @@ import { buildLootItems } from './lootItems';
 import { RANKED_SLOTS, canRaise, normalizeRanks, ultRankCap, unassignedPoints, type AbilityRanks } from './abilityRanks';
 import { LOOT_RULE_KEYS, parseLootRules } from './validate';
 import { FAQ_SEED } from './faqSeed';
-import type { AugmentInput, FaqInput, FaqPatch, MapPoiInput, MapPoiKind, MapPoiPatch, ChampionAbility, ChampionFieldsPatch, HistoryKind, ItemUpdate, LootRules, LootRulesPatch, PartyPatch, PlayerPatch, PlayerReplace, PlayerSheet, RolePatch, RollRecord, ShopOrder, TicketInput, TicketStatus } from './validate';
+import type { AugmentInput, NpcInput, FaqInput, FaqPatch, MapPoiInput, MapPoiKind, MapPoiPatch, ChampionAbility, ChampionFieldsPatch, HistoryKind, ItemUpdate, LootRules, LootRulesPatch, PartyPatch, PlayerPatch, PlayerReplace, PlayerSheet, RolePatch, RollRecord, ShopOrder, TicketInput, TicketStatus } from './validate';
 
 const PUBLIC = { projection: { _id: 0, order: 0 } };
 const CI = { locale: 'es', strength: 2 } as const;
@@ -1319,7 +1319,7 @@ export async function deleteAugment(id: string): Promise<{ id: string }> {
 export async function mongoStatus() {
   const db = await getDb();
   await db.command({ ping: 1 });
-  const names = ['champions', 'items', 'players', 'roles', 'loot', 'party', 'rollHistoric', 'craftHistoric', 'buyHistoric', 'sellHistoric', 'tickets', 'augments', 'mapPois', 'faq'] as const;
+  const names = ['champions', 'items', 'players', 'roles', 'loot', 'party', 'rollHistoric', 'craftHistoric', 'buyHistoric', 'sellHistoric', 'tickets', 'augments', 'mapPois', 'faq', 'npcs'] as const;
   const counts = Object.fromEntries(
     await Promise.all(names.map(async name => [name, await db.collection(name).estimatedDocumentCount()] as const)),
   );
@@ -1533,5 +1533,72 @@ export async function deleteFaq(id: string): Promise<{ id: string }> {
   if (!ObjectId.isValid(id)) throw new HttpError(404, MISSING_FAQ);
   const result = await (await faqCollection()).deleteOne({ _id: new ObjectId(id) });
   if (result.deletedCount === 0) throw new HttpError(404, MISSING_FAQ);
+  return { id };
+}
+
+// ── NPCs / Monstruos (colección npcs) ──
+
+export type NpcEntry = NpcInput & { id: string; createdAt: string; updatedAt?: string };
+
+const MISSING_NPC = 'No existe ese NPC';
+
+function toNpc(doc: Document): NpcEntry {
+  const created = doc.createdAt instanceof Date
+    ? doc.createdAt
+    : doc._id instanceof ObjectId
+      ? doc._id.getTimestamp()
+      : new Date(0);
+  const text = (value: unknown) => (typeof value === 'string' ? value : '');
+  const entry: NpcEntry = {
+    id: String(doc._id),
+    name: text(doc.name),
+    kind: doc.kind === 'monstruo' ? 'monstruo' : 'npc',
+    type: text(doc.type),
+    region: text(doc.region),
+    level: typeof doc.level === 'number' && Number.isFinite(doc.level) ? doc.level : 1,
+    image: text(doc.image),
+    background: typeof doc.background === 'string' && doc.background ? doc.background : null,
+    description: text(doc.description),
+    stats: doc.stats && typeof doc.stats === 'object' && !Array.isArray(doc.stats) ? doc.stats as NpcInput['stats'] : {},
+    abilities: Array.isArray(doc.abilities) ? doc.abilities as NpcInput['abilities'] : [],
+    visible: doc.visible === true,
+    createdAt: created.toISOString(),
+  };
+  if (doc.updatedAt instanceof Date) entry.updatedAt = doc.updatedAt.toISOString();
+  return entry;
+}
+
+/** Todos los NPCs/monstruos por nombre. */
+export async function listNpcs(): Promise<NpcEntry[]> {
+  const docs = await (await collection('npcs')).find({}).sort({ name: 1, _id: 1 }).collation(CI).toArray();
+  return docs.map(toNpc);
+}
+
+export async function getNpc(id: string): Promise<NpcEntry> {
+  if (!ObjectId.isValid(id)) throw new HttpError(404, MISSING_NPC);
+  const doc = await (await collection('npcs')).findOne({ _id: new ObjectId(id) });
+  if (!doc) throw new HttpError(404, MISSING_NPC);
+  return toNpc(doc);
+}
+
+export async function createNpc(input: NpcInput): Promise<NpcEntry> {
+  const doc: Document = { ...input, createdAt: new Date() };
+  const result = await (await collection('npcs')).insertOne(doc);
+  return toNpc({ ...doc, _id: result.insertedId });
+}
+
+export async function updateNpc(id: string, patch: Partial<NpcInput>): Promise<NpcEntry> {
+  if (!ObjectId.isValid(id)) throw new HttpError(404, MISSING_NPC);
+  const col = await collection('npcs');
+  const _id = new ObjectId(id);
+  const result = await col.updateOne({ _id }, { $set: { ...patch, updatedAt: new Date() } });
+  if (result.matchedCount === 0) throw new HttpError(404, MISSING_NPC);
+  return getNpc(id);
+}
+
+export async function deleteNpc(id: string): Promise<{ id: string }> {
+  if (!ObjectId.isValid(id)) throw new HttpError(404, MISSING_NPC);
+  const result = await (await collection('npcs')).deleteOne({ _id: new ObjectId(id) });
+  if (result.deletedCount === 0) throw new HttpError(404, MISSING_NPC);
   return { id };
 }

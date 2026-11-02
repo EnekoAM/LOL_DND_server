@@ -13,7 +13,7 @@ import { queryValue, type ApiHandler, type ApiResponse } from './http';
  *
  * Este módulo no importa `ws`, así que se puede usar desde las funciones de Vercel.
  */
-export type LiveResource = 'party' | 'players' | 'items' | 'loot' | 'roles' | 'champions' | 'history' | 'tickets' | 'augments' | 'mapPois' | 'faq';
+export type LiveResource = 'party' | 'players' | 'items' | 'loot' | 'roles' | 'champions' | 'history' | 'tickets' | 'augments' | 'mapPois' | 'faq' | 'npcs';
 
 export type LiveEvent = {
   type: 'changed';
