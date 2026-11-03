@@ -31,6 +31,8 @@ export type PartyPatch = Partial<Record<(typeof PARTY_FIELDS)[number], number>> 
   spendSpawnToken?: SpawnTokenKind;
   /** Muestra la sección Aumentos a los players en la barra lateral. */
   aumentosForPlayers?: boolean;
+  /** Muestra la pestaña Relaciones de las fichas a los players. */
+  relationsForPlayers?: boolean;
   /** Ruleta de aumentos: probabilidad (%) de cada rareza y coste en oro por tirada. */
   aumentoRoll?: AumentoRollSettings;
 };
@@ -418,6 +420,12 @@ export function parsePartyPatch(body: unknown): PartyPatch {
       throw new HttpError(400, 'aumentosForPlayers tiene que ser true o false');
     }
     patch.aumentosForPlayers = source.aumentosForPlayers;
+  }
+  if (source.relationsForPlayers !== undefined) {
+    if (typeof source.relationsForPlayers !== 'boolean') {
+      throw new HttpError(400, 'relationsForPlayers tiene que ser true o false');
+    }
+    patch.relationsForPlayers = source.relationsForPlayers;
   }
   if (source.aumentoRoll !== undefined) patch.aumentoRoll = parseAumentoRoll(source.aumentoRoll);
   if (Object.keys(patch).length === 0) throw new HttpError(400, 'No hay campos para actualizar');

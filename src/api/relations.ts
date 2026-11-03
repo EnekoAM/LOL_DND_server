@@ -1,6 +1,6 @@
 import { HttpError } from '../errors';
 import { assertWriteAccess, queryValue, withErrors, type ApiRequest } from '../http';
-import { createRelation, deleteRelation, listRelationsFor, updateRelationNote } from '../store';
+import { createRelation, deleteRelation, getParty, listRelationsFor, updateRelationNote } from '../store';
 import { parseRelationInput, parseRelationNote, parseRelationRef } from '../validate';
 import { withLive } from '../livePublish';
 
@@ -15,6 +15,15 @@ function assertAdminRole(req: ApiRequest): void {
   if (!isAdmin(req)) throw new HttpError(403, 'Solo el admin puede gestionar las relaciones');
 }
 
+/** El admin decide (party.relationsForPlayers) si los players ven las relaciones. */
+async function relationsForPlayers(): Promise<boolean> {
+  try {
+    return (await getParty() as { relationsForPlayers?: unknown }).relationsForPlayers === true;
+  } catch {
+    return false;
+  }
+}
+
 function relationId(req: ApiRequest): string {
   const fromQuery = queryValue(req.query, 'id')?.trim();
   const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body as Record<string, unknown> : {};
@@ -27,7 +36,8 @@ function relationId(req: ApiRequest): string {
 /**
  * /api/relations — relaciones entre campeones y NPCs (simétricas: se ven desde las dos fichas).
  * GET    ?kind=champion|npc&id=   relaciones de esa ficha con la otra punta resuelta.
- *                                 Players: solo si la ficha es visible y solo con fichas visibles.
+ *                                 Players: solo si el admin las activó (party.relationsForPlayers; si no, []),
+ *                                 si la ficha es visible y solo con fichas visibles.
  * POST   { a, b, note? }          crea (admin). a/b = { kind, id }; campeón = nombre, NPC = id.
  * PATCH  ?id= { note }            cambia la nota (admin).
  * DELETE ?id=                     borra (admin).
@@ -35,7 +45,12 @@ function relationId(req: ApiRequest): string {
 export default withLive({ POST: ['relations'], PATCH: ['relations'], DELETE: ['relations'] }, withErrors(async (req, res) => {
   if (req.method === 'GET') {
     const ref = parseRelationRef({ kind: queryValue(req.query, 'kind'), id: queryValue(req.query, 'id') }, 'La ficha');
-    res.status(200).json(await listRelationsFor(ref, !isAdmin(req)));
+    const admin = isAdmin(req);
+    if (!admin && !(await relationsForPlayers())) {
+      res.status(200).json([]);
+      return;
+    }
+    res.status(200).json(await listRelationsFor(ref, !admin));
     return;
   }
   if (req.method === 'POST') {
