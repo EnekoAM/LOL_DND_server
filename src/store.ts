@@ -5,7 +5,7 @@ import { buildLootItems } from './lootItems';
 import { RANKED_SLOTS, canRaise, normalizeRanks, ultRankCap, unassignedPoints, type AbilityRanks } from './abilityRanks';
 import { LOOT_RULE_KEYS, parseLootRules } from './validate';
 import { FAQ_SEED } from './faqSeed';
-import type { AugmentInput, NpcInput, FaqInput, FaqPatch, MapPoiInput, MapPoiKind, MapPoiPatch, ChampionAbility, ChampionFieldsPatch, HistoryKind, ItemUpdate, LootRules, LootRulesPatch, PartyPatch, PlayerPatch, PlayerReplace, PlayerSheet, RolePatch, RollRecord, ShopOrder, TicketInput, TicketStatus } from './validate';
+import type { RelationInput, RelationRef, AugmentInput, NpcInput, FaqInput, FaqPatch, MapPoiInput, MapPoiKind, MapPoiPatch, ChampionAbility, ChampionFieldsPatch, HistoryKind, ItemUpdate, LootRules, LootRulesPatch, PartyPatch, PlayerPatch, PlayerReplace, PlayerSheet, RolePatch, RollRecord, ShopOrder, TicketInput, TicketStatus } from './validate';
 
 const PUBLIC = { projection: { _id: 0, order: 0 } };
 const CI = { locale: 'es', strength: 2 } as const;
@@ -1319,7 +1319,7 @@ export async function deleteAugment(id: string): Promise<{ id: string }> {
 export async function mongoStatus() {
   const db = await getDb();
   await db.command({ ping: 1 });
-  const names = ['champions', 'items', 'players', 'roles', 'loot', 'party', 'rollHistoric', 'craftHistoric', 'buyHistoric', 'sellHistoric', 'tickets', 'augments', 'mapPois', 'faq', 'npcs'] as const;
+  const names = ['champions', 'items', 'players', 'roles', 'loot', 'party', 'rollHistoric', 'craftHistoric', 'buyHistoric', 'sellHistoric', 'tickets', 'augments', 'mapPois', 'faq', 'npcs', 'relations'] as const;
   const counts = Object.fromEntries(
     await Promise.all(names.map(async name => [name, await db.collection(name).estimatedDocumentCount()] as const)),
   );
@@ -1610,5 +1610,158 @@ export async function deleteNpc(id: string): Promise<{ id: string }> {
   if (!ObjectId.isValid(id)) throw new HttpError(404, MISSING_NPC);
   const result = await (await collection('npcs')).deleteOne({ _id: new ObjectId(id) });
   if (result.deletedCount === 0) throw new HttpError(404, MISSING_NPC);
+  // Sus relaciones dejan de tener sentido.
+  await (await collection('relations')).deleteMany(relationFilter({ kind: 'npc', id }));
+  return { id };
+}
+
+// ── Relaciones entre campeones y NPCs (colección relations) ──
+// Un documento por pareja { a, b, note }: es simétrica, así que se ve desde las dos fichas.
+// Campeón = su nombre (campo champion); NPC = el _id en texto.
+
+export type RelationEntity = {
+  kind: RelationRef['kind'];
+  id: string;
+  name: string;
+  image: string;
+  /** Encuadre de la foto (solo NPCs): el de la tarjeta (círculo). */
+  imageFrame: NpcInput['imageFrame'];
+  /** Activo (campeón) / visible (NPC) para los players. */
+  visible: boolean;
+};
+
+export type RelationView = {
+  id: string;
+  note: string;
+  /** La otra punta de la relación (respecto a la ficha consultada). */
+  other: RelationEntity;
+  createdAt: string;
+};
+
+const MISSING_RELATION = 'No existe esa relación';
+
+function relationFilter(ref: RelationRef): Filter<Document> {
+  return { $or: [{ 'a.kind': ref.kind, 'a.id': ref.id }, { 'b.kind': ref.kind, 'b.id': ref.id }] };
+}
+
+const sameRef = (left: RelationRef, right: RelationRef) =>
+  left.kind === right.kind && (left.kind === 'champion' ? left.id.toLowerCase() === right.id.toLowerCase() : left.id === right.id);
+
+/** Resuelve campeones y NPCs de golpe. Clave: kind:id (campeón en minúsculas). */
+async function loadRelationEntities(refs: RelationRef[]): Promise<Map<string, RelationEntity>> {
+  const out = new Map<string, RelationEntity>();
+  const championNames = [...new Set(refs.filter(r => r.kind === 'champion').map(r => r.id))];
+  const npcIds = [...new Set(refs.filter(r => r.kind === 'npc' && ObjectId.isValid(r.id)).map(r => r.id))];
+  if (championNames.length) {
+    const docs = await (await collection('champions'))
+      .find({ champion: { $in: championNames } }, { projection: { champion: 1, image: 1, active: 1 }, collation: CI })
+      .toArray();
+    for (const doc of docs) {
+      const name = String(doc.champion);
+      out.set(`champion:${name.toLowerCase()}`, {
+        kind: 'champion',
+        id: name,
+        name,
+        image: typeof doc.image === 'string' ? doc.image : '',
+        imageFrame: null,
+        visible: doc.active === true,
+      });
+    }
+  }
+  if (npcIds.length) {
+    const docs = await (await collection('npcs'))
+      .find({ _id: { $in: npcIds.map(id => new ObjectId(id)) } }, { projection: { name: 1, image: 1, imageFrame: 1, imageFrameCircle: 1, visible: 1 } })
+      .toArray();
+    for (const doc of docs) {
+      const id = String(doc._id);
+      out.set(`npc:${id}`, {
+        kind: 'npc',
+        id,
+        name: typeof doc.name === 'string' ? doc.name : '',
+        image: typeof doc.image === 'string' ? doc.image : '',
+        imageFrame: toNpcFrame(doc.imageFrameCircle) ?? toNpcFrame(doc.imageFrame),
+        visible: doc.visible === true,
+      });
+    }
+  }
+  return out;
+}
+
+const entityKey = (ref: RelationRef) => `${ref.kind}:${ref.kind === 'champion' ? ref.id.toLowerCase() : ref.id}`;
+
+async function requireEntity(ref: RelationRef): Promise<RelationEntity> {
+  const found = (await loadRelationEntities([ref])).get(entityKey(ref));
+  if (!found) throw new HttpError(404, ref.kind === 'champion' ? `No existe el campeón ${ref.id}` : MISSING_NPC);
+  return found;
+}
+
+function toRelationRef(value: unknown): RelationRef | null {
+  if (!value || typeof value !== 'object') return null;
+  const { kind, id } = value as Record<string, unknown>;
+  if ((kind !== 'champion' && kind !== 'npc') || typeof id !== 'string') return null;
+  return { kind, id };
+}
+
+/**
+ * Relaciones de una ficha (campeón o NPC), con la otra punta resuelta.
+ * onlyVisible (players): la ficha tiene que ser visible y solo salen relaciones con entidades visibles.
+ */
+export async function listRelationsFor(ref: RelationRef, onlyVisible: boolean): Promise<RelationView[]> {
+  const self = await requireEntity(ref);
+  if (onlyVisible && !self.visible) throw new HttpError(404, ref.kind === 'champion' ? `No existe el campeón ${ref.id}` : MISSING_NPC);
+  const canonical: RelationRef = { kind: ref.kind, id: self.id };
+  const docs = await (await collection('relations')).find(relationFilter(canonical), { collation: CI }).sort({ createdAt: 1, _id: 1 }).toArray();
+  const pairs = docs.flatMap(doc => {
+    const a = toRelationRef(doc.a);
+    const b = toRelationRef(doc.b);
+    if (!a || !b) return [];
+    const other = sameRef(a, canonical) ? b : a;
+    return [{ doc, other }];
+  });
+  const entities = await loadRelationEntities(pairs.map(pair => pair.other));
+  const views: RelationView[] = [];
+  for (const { doc, other } of pairs) {
+    const entity = entities.get(entityKey(other));
+    if (!entity) continue; // La otra punta ya no existe.
+    if (onlyVisible && !entity.visible) continue;
+    const created = doc.createdAt instanceof Date ? doc.createdAt : doc._id instanceof ObjectId ? doc._id.getTimestamp() : new Date(0);
+    views.push({ id: String(doc._id), note: typeof doc.note === 'string' ? doc.note : '', other: entity, createdAt: created.toISOString() });
+  }
+  return views.sort((x, y) => x.other.kind.localeCompare(y.other.kind) || x.other.name.localeCompare(y.other.name, 'es', { sensitivity: 'base' }));
+}
+
+/** Crea la relación (si ya existe en cualquier sentido, actualiza la nota). Devuelve la vista desde a. */
+export async function createRelation(input: RelationInput): Promise<RelationView> {
+  if (sameRef(input.a, input.b)) throw new HttpError(400, 'No se puede relacionar una ficha consigo misma');
+  const [a, b] = await Promise.all([requireEntity(input.a), requireEntity(input.b)]);
+  const refA: RelationRef = { kind: a.kind, id: a.id };
+  const refB: RelationRef = { kind: b.kind, id: b.id };
+  const col = await collection('relations');
+  const existing = await col.findOne({
+    $or: [
+      { 'a.kind': refA.kind, 'a.id': refA.id, 'b.kind': refB.kind, 'b.id': refB.id },
+      { 'a.kind': refB.kind, 'a.id': refB.id, 'b.kind': refA.kind, 'b.id': refA.id },
+    ],
+  }, { collation: CI });
+  const now = new Date();
+  if (existing) {
+    await col.updateOne({ _id: existing._id }, { $set: { note: input.note, updatedAt: now } });
+    return { id: String(existing._id), note: input.note, other: b, createdAt: (existing.createdAt instanceof Date ? existing.createdAt : now).toISOString() };
+  }
+  const result = await col.insertOne({ a: refA, b: refB, note: input.note, createdAt: now });
+  return { id: String(result.insertedId), note: input.note, other: b, createdAt: now.toISOString() };
+}
+
+export async function updateRelationNote(id: string, note: string): Promise<{ id: string; note: string }> {
+  if (!ObjectId.isValid(id)) throw new HttpError(404, MISSING_RELATION);
+  const result = await (await collection('relations')).updateOne({ _id: new ObjectId(id) }, { $set: { note, updatedAt: new Date() } });
+  if (result.matchedCount === 0) throw new HttpError(404, MISSING_RELATION);
+  return { id, note };
+}
+
+export async function deleteRelation(id: string): Promise<{ id: string }> {
+  if (!ObjectId.isValid(id)) throw new HttpError(404, MISSING_RELATION);
+  const result = await (await collection('relations')).deleteOne({ _id: new ObjectId(id) });
+  if (result.deletedCount === 0) throw new HttpError(404, MISSING_RELATION);
   return { id };
 }

@@ -73,7 +73,7 @@ function npcId(req: ApiRequest, required = true): string | undefined {
  * Los players reciben una ficha reducida (nombre, foto y descripción; sin habilidades, stats, tipo, región ni nivel).
  * DELETE ?id=    borra (admin)
  */
-export default withLive({ POST: ['npcs'], PATCH: ['npcs'], DELETE: ['npcs'] }, withErrors(async (req, res) => {
+export default withLive({ POST: ['npcs'], PATCH: ['npcs'], DELETE: ['npcs', 'relations'] }, withErrors(async (req, res) => {
   if (req.method === 'GET') {
     const id = npcId(req, false);
     const admin = isAdmin(req);

@@ -1679,3 +1679,35 @@ export function parseNpcInput(body: unknown, partial = false): Partial<NpcInput>
   if (partial && Object.keys(out).length === 0) throw new HttpError(400, 'No hay campos para actualizar');
   return out;
 }
+
+// ── Relaciones entre campeones y NPCs (colección relations) ──
+
+export const RELATION_KINDS = ['champion', 'npc'] as const;
+export type RelationKind = (typeof RELATION_KINDS)[number];
+export type RelationRef = { kind: RelationKind; id: string };
+export const RELATION_NOTE_MAX = 200;
+const RELATION_ID_MAX = 120;
+
+export type RelationInput = { a: RelationRef; b: RelationRef; note: string };
+
+export function parseRelationRef(value: unknown, field: string): RelationRef {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new HttpError(400, `${field} tiene que ser { kind, id }`);
+  const source = value as Record<string, unknown>;
+  if (typeof source.kind !== 'string' || !(RELATION_KINDS as readonly string[]).includes(source.kind)) {
+    throw new HttpError(400, `${field}.kind tiene que ser champion o npc`);
+  }
+  if (typeof source.id !== 'string' || !source.id.trim()) throw new HttpError(400, `Falta ${field}.id`);
+  const id = source.id.trim();
+  if (id.length > RELATION_ID_MAX) throw new HttpError(400, `${field}.id es demasiado largo`);
+  return { kind: source.kind as RelationKind, id };
+}
+
+export function parseRelationNote(value: unknown): string {
+  return boundedText(value, 'La nota de la relación', RELATION_NOTE_MAX);
+}
+
+/** POST /api/relations: { a: { kind, id }, b: { kind, id }, note? }. */
+export function parseRelationInput(body: unknown): RelationInput {
+  const source = asObject(body);
+  return { a: parseRelationRef(source.a, 'a'), b: parseRelationRef(source.b, 'b'), note: parseRelationNote(source.note) };
+}
