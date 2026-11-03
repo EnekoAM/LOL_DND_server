@@ -1688,7 +1688,14 @@ export type RelationRef = { kind: RelationKind; id: string };
 export const RELATION_NOTE_MAX = 200;
 const RELATION_ID_MAX = 120;
 
-export type RelationInput = { a: RelationRef; b: RelationRef; note: string };
+export type RelationInput = { a: RelationRef; b: RelationRef; note: string; visibleToPlayers?: boolean };
+/** PATCH /api/relations: nota y/o si la ven los players. */
+export type RelationPatch = { note?: string; visibleToPlayers?: boolean };
+
+function parseRelationVisible(value: unknown): boolean {
+  if (typeof value !== 'boolean') throw new HttpError(400, 'visibleToPlayers tiene que ser true o false');
+  return value;
+}
 
 export function parseRelationRef(value: unknown, field: string): RelationRef {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new HttpError(400, `${field} tiene que ser { kind, id }`);
@@ -1706,8 +1713,20 @@ export function parseRelationNote(value: unknown): string {
   return boundedText(value, 'La nota de la relación', RELATION_NOTE_MAX);
 }
 
-/** POST /api/relations: { a: { kind, id }, b: { kind, id }, note? }. */
+/** POST /api/relations: { a: { kind, id }, b: { kind, id }, note?, visibleToPlayers? }. */
 export function parseRelationInput(body: unknown): RelationInput {
   const source = asObject(body);
-  return { a: parseRelationRef(source.a, 'a'), b: parseRelationRef(source.b, 'b'), note: parseRelationNote(source.note) };
+  const input: RelationInput = { a: parseRelationRef(source.a, 'a'), b: parseRelationRef(source.b, 'b'), note: parseRelationNote(source.note) };
+  if (source.visibleToPlayers !== undefined) input.visibleToPlayers = parseRelationVisible(source.visibleToPlayers);
+  return input;
+}
+
+/** PATCH /api/relations?id=: { note?, visibleToPlayers? } (al menos uno). */
+export function parseRelationPatch(body: unknown): RelationPatch {
+  const source = asObject(body);
+  const patch: RelationPatch = {};
+  if (source.note !== undefined) patch.note = parseRelationNote(source.note);
+  if (source.visibleToPlayers !== undefined) patch.visibleToPlayers = parseRelationVisible(source.visibleToPlayers);
+  if (Object.keys(patch).length === 0) throw new HttpError(400, 'No hay campos para actualizar (note, visibleToPlayers)');
+  return patch;
 }

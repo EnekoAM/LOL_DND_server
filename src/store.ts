@@ -5,7 +5,7 @@ import { buildLootItems } from './lootItems';
 import { RANKED_SLOTS, canRaise, normalizeRanks, ultRankCap, unassignedPoints, type AbilityRanks } from './abilityRanks';
 import { LOOT_RULE_KEYS, parseLootRules } from './validate';
 import { FAQ_SEED } from './faqSeed';
-import type { RelationInput, RelationRef, AugmentInput, NpcInput, FaqInput, FaqPatch, MapPoiInput, MapPoiKind, MapPoiPatch, ChampionAbility, ChampionFieldsPatch, HistoryKind, ItemUpdate, LootRules, LootRulesPatch, PartyPatch, PlayerPatch, PlayerReplace, PlayerSheet, RolePatch, RollRecord, ShopOrder, TicketInput, TicketStatus } from './validate';
+import type { RelationInput, RelationPatch, RelationRef, AugmentInput, NpcInput, FaqInput, FaqPatch, MapPoiInput, MapPoiKind, MapPoiPatch, ChampionAbility, ChampionFieldsPatch, HistoryKind, ItemUpdate, LootRules, LootRulesPatch, PartyPatch, PlayerPatch, PlayerReplace, PlayerSheet, RolePatch, RollRecord, ShopOrder, TicketInput, TicketStatus } from './validate';
 
 const PUBLIC = { projection: { _id: 0, order: 0 } };
 const CI = { locale: 'es', strength: 2 } as const;
@@ -1616,7 +1616,8 @@ export async function deleteNpc(id: string): Promise<{ id: string }> {
 }
 
 // ── Relaciones entre campeones y NPCs (colección relations) ──
-// Un documento por pareja { a, b, note }: es simétrica, así que se ve desde las dos fichas.
+// Un documento por pareja { a, b, note, visibleToPlayers }: es simétrica, así que se ve desde las dos fichas.
+// visibleToPlayers (por relación, por defecto false): solo entonces la ven los players.
 // Campeón = su nombre (campo champion); NPC = el _id en texto.
 
 export type RelationEntity = {
@@ -1633,6 +1634,8 @@ export type RelationEntity = {
 export type RelationView = {
   id: string;
   note: string;
+  /** El admin la ha hecho visible para los players. */
+  visibleToPlayers: boolean;
   /** La otra punta de la relación (respecto a la ficha consultada). */
   other: RelationEntity;
   createdAt: string;
@@ -1704,7 +1707,8 @@ function toRelationRef(value: unknown): RelationRef | null {
 
 /**
  * Relaciones de una ficha (campeón o NPC), con la otra punta resuelta.
- * onlyVisible (players): la ficha tiene que ser visible y solo salen relaciones con entidades visibles.
+ * onlyVisible (players): la ficha tiene que ser visible y solo salen relaciones marcadas visibleToPlayers
+ * cuya otra punta también es visible.
  */
 export async function listRelationsFor(ref: RelationRef, onlyVisible: boolean): Promise<RelationView[]> {
   const self = await requireEntity(ref);
@@ -1723,9 +1727,10 @@ export async function listRelationsFor(ref: RelationRef, onlyVisible: boolean): 
   for (const { doc, other } of pairs) {
     const entity = entities.get(entityKey(other));
     if (!entity) continue; // La otra punta ya no existe.
-    if (onlyVisible && !entity.visible) continue;
+    const visibleToPlayers = doc.visibleToPlayers === true;
+    if (onlyVisible && (!entity.visible || !visibleToPlayers)) continue;
     const created = doc.createdAt instanceof Date ? doc.createdAt : doc._id instanceof ObjectId ? doc._id.getTimestamp() : new Date(0);
-    views.push({ id: String(doc._id), note: typeof doc.note === 'string' ? doc.note : '', other: entity, createdAt: created.toISOString() });
+    views.push({ id: String(doc._id), note: typeof doc.note === 'string' ? doc.note : '', visibleToPlayers, other: entity, createdAt: created.toISOString() });
   }
   return views.sort((x, y) => x.other.kind.localeCompare(y.other.kind) || x.other.name.localeCompare(y.other.name, 'es', { sensitivity: 'base' }));
 }
@@ -1745,18 +1750,27 @@ export async function createRelation(input: RelationInput): Promise<RelationView
   }, { collation: CI });
   const now = new Date();
   if (existing) {
-    await col.updateOne({ _id: existing._id }, { $set: { note: input.note, updatedAt: now } });
-    return { id: String(existing._id), note: input.note, other: b, createdAt: (existing.createdAt instanceof Date ? existing.createdAt : now).toISOString() };
+    const $set: Record<string, unknown> = { note: input.note, updatedAt: now };
+    if (input.visibleToPlayers !== undefined) $set.visibleToPlayers = input.visibleToPlayers;
+    await col.updateOne({ _id: existing._id }, { $set });
+    const visibleToPlayers = input.visibleToPlayers ?? existing.visibleToPlayers === true;
+    return { id: String(existing._id), note: input.note, visibleToPlayers, other: b, createdAt: (existing.createdAt instanceof Date ? existing.createdAt : now).toISOString() };
   }
-  const result = await col.insertOne({ a: refA, b: refB, note: input.note, createdAt: now });
-  return { id: String(result.insertedId), note: input.note, other: b, createdAt: now.toISOString() };
+  const visibleToPlayers = input.visibleToPlayers === true;
+  const result = await col.insertOne({ a: refA, b: refB, note: input.note, visibleToPlayers, createdAt: now });
+  return { id: String(result.insertedId), note: input.note, visibleToPlayers, other: b, createdAt: now.toISOString() };
 }
 
-export async function updateRelationNote(id: string, note: string): Promise<{ id: string; note: string }> {
+/** Cambia la nota y/o la visibilidad para players de una relación. */
+export async function updateRelation(id: string, patch: RelationPatch): Promise<{ id: string; note: string; visibleToPlayers: boolean }> {
   if (!ObjectId.isValid(id)) throw new HttpError(404, MISSING_RELATION);
-  const result = await (await collection('relations')).updateOne({ _id: new ObjectId(id) }, { $set: { note, updatedAt: new Date() } });
-  if (result.matchedCount === 0) throw new HttpError(404, MISSING_RELATION);
-  return { id, note };
+  const doc = await (await collection('relations')).findOneAndUpdate(
+    { _id: new ObjectId(id) },
+    { $set: { ...patch, updatedAt: new Date() } },
+    { returnDocument: 'after' },
+  );
+  if (!doc) throw new HttpError(404, MISSING_RELATION);
+  return { id, note: typeof doc.note === 'string' ? doc.note : '', visibleToPlayers: doc.visibleToPlayers === true };
 }
 
 export async function deleteRelation(id: string): Promise<{ id: string }> {

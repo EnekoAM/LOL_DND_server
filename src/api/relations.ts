@@ -1,7 +1,7 @@
 import { HttpError } from '../errors';
 import { assertWriteAccess, queryValue, withErrors, type ApiRequest } from '../http';
-import { createRelation, deleteRelation, listRelationsFor, updateRelationNote } from '../store';
-import { parseRelationInput, parseRelationNote, parseRelationRef } from '../validate';
+import { createRelation, deleteRelation, listRelationsFor, updateRelation } from '../store';
+import { parseRelationInput, parseRelationPatch, parseRelationRef } from '../validate';
 import { withLive } from '../livePublish';
 
 /** Rol blando (localStorage) que manda el cliente; igual de confiable que el resto de la app. */
@@ -27,9 +27,10 @@ function relationId(req: ApiRequest): string {
 /**
  * /api/relations — relaciones entre campeones y NPCs (simétricas: se ven desde las dos fichas).
  * GET    ?kind=champion|npc&id=   relaciones de esa ficha con la otra punta resuelta.
- *                                 Players: solo si la ficha es visible y solo con fichas visibles.
- * POST   { a, b, note? }          crea (admin). a/b = { kind, id }; campeón = nombre, NPC = id.
- * PATCH  ?id= { note }            cambia la nota (admin).
+ *                                 Players: solo si la ficha es visible, la relación tiene visibleToPlayers
+ *                                 y la otra ficha también es visible.
+ * POST   { a, b, note?, visibleToPlayers? }  crea (admin; visibleToPlayers por defecto false). a/b = { kind, id }; campeón = nombre, NPC = id.
+ * PATCH  ?id= { note?, visibleToPlayers? }  cambia la nota y/o la visibilidad para players (admin).
  * DELETE ?id=                     borra (admin).
  */
 export default withLive({ POST: ['relations'], PATCH: ['relations'], DELETE: ['relations'] }, withErrors(async (req, res) => {
@@ -47,8 +48,7 @@ export default withLive({ POST: ['relations'], PATCH: ['relations'], DELETE: ['r
   if (req.method === 'PATCH') {
     assertWriteAccess(req);
     assertAdminRole(req);
-    const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body as Record<string, unknown> : {};
-    res.status(200).json(await updateRelationNote(relationId(req), parseRelationNote(body.note)));
+    res.status(200).json(await updateRelation(relationId(req), parseRelationPatch(req.body)));
     return;
   }
   if (req.method === 'DELETE') {
