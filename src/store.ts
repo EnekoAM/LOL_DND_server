@@ -5,6 +5,7 @@ import { buildLootItems } from './lootItems';
 import { RANKED_SLOTS, canRaise, normalizeRanks, ultRankCap, unassignedPoints, type AbilityRanks } from './abilityRanks';
 import { LOOT_RULE_KEYS, parseLootRules } from './validate';
 import { FAQ_SEED } from './faqSeed';
+import { deleteNotesFor } from './playerNotes';
 import type { RelationInput, RelationPatch, RelationRef, AugmentInput, NpcInput, FaqInput, FaqPatch, MapPoiInput, MapPoiKind, MapPoiPatch, ChampionAbility, ChampionFieldsPatch, HistoryKind, ItemUpdate, LootRules, LootRulesPatch, PartyPatch, PlayerPatch, PlayerReplace, PlayerSheet, RolePatch, RollRecord, ShopOrder, TicketInput, TicketStatus } from './validate';
 
 const PUBLIC = { projection: { _id: 0, order: 0 } };
@@ -1612,6 +1613,7 @@ export async function deleteNpc(id: string): Promise<{ id: string }> {
   if (result.deletedCount === 0) throw new HttpError(404, MISSING_NPC);
   // Sus relaciones dejan de tener sentido.
   await (await collection('relations')).deleteMany(relationFilter({ kind: 'npc', id }));
+  await deleteNotesFor('npc', id);
   return { id };
 }
 

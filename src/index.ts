@@ -12,6 +12,7 @@ import loot from './api/loot';
 import mapPois from './api/map-pois';
 import npcs from './api/npcs';
 import party from './api/party';
+import playerNotes from './api/player-notes';
 import relations from './api/relations';
 import playerByName from './handlers/playerByName';
 import players from './api/players/index';
@@ -72,7 +73,7 @@ app.use((req: Request, res: Response, next: NextFunction) => {
     res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Vary', 'Origin');
     res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Api-Key, X-App-Role, X-Client-Id');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Api-Key, X-App-Role, X-App-Player, X-Client-Id');
     res.setHeader('Access-Control-Max-Age', '86400');
   }
   if (req.method === 'OPTIONS') {
@@ -135,6 +136,9 @@ app.get('/api/relations', adapt(relations));
 app.post('/api/relations', adapt(relations));
 app.patch('/api/relations', adapt(relations));
 app.delete('/api/relations', adapt(relations));
+// Notas privadas de cada player sobre campeones y NPCs (X-App-Player); solo las suyas, el admin no tiene.
+app.get('/api/player-notes', adapt(playerNotes));
+app.put('/api/player-notes', adapt(playerNotes));
 app.get('/api/loot', adapt(loot));
 app.patch('/api/loot', adapt(loot));
 app.get('/api/party', adapt(party));
