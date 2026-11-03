@@ -21,12 +21,14 @@
   },
   "dependencies": {
     "ably": "^2.30.0",
+    "compression": "^1.8.2",
     "express": "^4.22.3",
     "mongodb": "^7.7.0",
     "tsx": "^4.23.15",
     "ws": "^8.22.0"
   },
   "devDependencies": {
+    "@types/compression": "^1.8.1",
     "@types/express": "^4.17.25",
     "@types/node": "^26.6.5",
     "@types/ws": "^8.18.2",

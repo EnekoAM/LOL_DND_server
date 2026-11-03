@@ -1,3 +1,4 @@
+import compression from 'compression';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import augments from './api/augments';
 import champions from './api/champions';
@@ -53,6 +54,9 @@ const app = express();
 app.disable('x-powered-by');
 // Render/Fly ponen un proxy delante: así req.ip y req.protocol son los reales.
 app.set('trust proxy', true);
+
+// gzip/brotli de las respuestas JSON (listas de campeones, NPCs, objetos...): mucho menos peso por red.
+app.use(compression());
 
 // CORS para que un frontend en otro dominio (p. ej. Vercel) pueda llamar a la API.
 // CORS_ORIGIN = lista separada por comas (https://mi-app.vercel.app,http://localhost:5173).
