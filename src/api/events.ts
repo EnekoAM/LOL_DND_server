@@ -25,9 +25,9 @@ function eventId(req: ApiRequest): string {
 }
 
 /**
- * /api/events — línea temporal de la campaña (sesiones pasadas y eventos planeados).
+ * /api/events — línea temporal atemporal de la campaña: visibles = ya pasó; ocultos = planeado por el admin.
  * GET            lista ordenada. Players: solo visibleToPlayers; admin (X-App-Role): todos.
- * POST           crear { title, body?, status?, session?, date?, visibleToPlayers?, afterId? } (admin).
+ * POST           crear { title, body?, session?, visibleToPlayers?, afterId? } (admin). visibleToPlayers = ya ha pasado.
  * PATCH ?id=     editar campos (admin).
  * DELETE ?id=    borrar (admin).
  * PUT            reordenar { ids: [...] } con la línea completa (admin).

@@ -3,24 +3,20 @@ import { getDb } from './db';
 import { HttpError } from './errors';
 
 /**
- * Eventos de la campaña (colección events): lo que pasó en las sesiones y lo que
- * el admin planea que pase. El orden de la línea temporal es explícito (order),
- * no la fecha, para poder meter eventos futuros entre otros ya ocurridos.
- * Documento: { title, body, status, session?, date?, visibleToPlayers, order, createdAt, updatedAt? }
+ * Eventos de la campaña (colección events). Son atemporales: no hay fecha ni estado.
+ * visibleToPlayers = true → ya ha pasado (lo ven los players); false → planeado (solo admin).
+ * El orden de la línea temporal es explícito (order), para poder meter lo planeado entre lo ocurrido.
+ * Documento: { title, body, session?, visibleToPlayers, order, createdAt, updatedAt? }
  */
-export type EventStatus = 'pasado' | 'futuro';
 
 export type CampaignEvent = {
   id: string;
   title: string;
   /** Texto con el formato ligero de Mecánicas (párrafos, listas, **negrita**). Puede ir vacío. */
   body: string;
-  status: EventStatus;
   /** Etiqueta libre: «Sesión 3», «Día 12 del viaje»… */
   session?: string;
-  /** Fecha real o de la campaña (YYYY-MM-DD). */
-  date?: string;
-  /** Los players solo ven los marcados. Por defecto: pasados sí, futuros no. */
+  /** true = ya ha pasado y lo ven los players; false = planeado, solo el admin. */
   visibleToPlayers: boolean;
   order: number;
   createdAt: string;
@@ -32,15 +28,12 @@ export const EVENT_BODY_MAX = 8000;
 export const EVENT_SESSION_MAX = 60;
 export const EVENT_LIST_MAX = 2000;
 const ORDER_STEP = 10;
-const STATUSES: readonly EventStatus[] = ['pasado', 'futuro'];
 const MISSING = 'No existe ese evento';
 
 export type EventInput = {
   title: string;
   body: string;
-  status: EventStatus;
   session?: string;
-  date?: string;
   visibleToPlayers: boolean;
   /** Se coloca justo debajo de este evento (si no, al final). */
   afterId?: string;
@@ -49,9 +42,7 @@ export type EventInput = {
 export type EventPatch = {
   title?: string;
   body?: string;
-  status?: EventStatus;
   session?: string | null;
-  date?: string | null;
   visibleToPlayers?: boolean;
 };
 
@@ -84,32 +75,11 @@ function title(value: unknown): string {
   return out;
 }
 
-function status(value: unknown): EventStatus {
-  if (typeof value !== 'string' || !STATUSES.includes(value as EventStatus)) {
-    throw new HttpError(400, 'status tiene que ser «pasado» o «futuro»');
-  }
-  return value as EventStatus;
-}
-
 function session(value: unknown): string | null {
   if (value === null) return null;
   const out = text(value, 'session', EVENT_SESSION_MAX);
   if (/[\n\t]/.test(out)) throw new HttpError(400, 'session tiene que ser una sola línea');
   return out || null;
-}
-
-function date(value: unknown): string | null {
-  if (value === null || value === '') return null;
-  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value.trim())) {
-    throw new HttpError(400, 'date tiene que ser una fecha AAAA-MM-DD');
-  }
-  const out = value.trim();
-  const [y, m, d] = out.split('-').map(Number) as [number, number, number];
-  const check = new Date(Date.UTC(y, m - 1, d));
-  if (check.getUTCFullYear() !== y || check.getUTCMonth() !== m - 1 || check.getUTCDate() !== d) {
-    throw new HttpError(400, 'date no es una fecha válida');
-  }
-  return out;
 }
 
 function bool(value: unknown, field: string): boolean {
@@ -124,21 +94,16 @@ function objectId(value: unknown, field: string): string {
 
 export function parseEventInput(body: unknown): EventInput {
   const source = asObject(body);
-  onlyKeys(source, ['title', 'body', 'status', 'session', 'date', 'visibleToPlayers', 'afterId']);
-  const st = source.status === undefined ? 'pasado' : status(source.status);
+  onlyKeys(source, ['title', 'body', 'session', 'visibleToPlayers', 'afterId']);
   const input: EventInput = {
     title: title(source.title),
     body: source.body === undefined ? '' : text(source.body, 'body', EVENT_BODY_MAX),
-    status: st,
-    visibleToPlayers: source.visibleToPlayers === undefined ? st === 'pasado' : bool(source.visibleToPlayers, 'visibleToPlayers'),
+    // Por defecto planeado (oculto): así no se destripa nada sin querer.
+    visibleToPlayers: source.visibleToPlayers === undefined ? false : bool(source.visibleToPlayers, 'visibleToPlayers'),
   };
   if (source.session !== undefined) {
     const value = session(source.session);
     if (value) input.session = value;
-  }
-  if (source.date !== undefined) {
-    const value = date(source.date);
-    if (value) input.date = value;
   }
   if (source.afterId !== undefined && source.afterId !== null) input.afterId = objectId(source.afterId, 'afterId');
   return input;
@@ -146,13 +111,11 @@ export function parseEventInput(body: unknown): EventInput {
 
 export function parseEventPatch(body: unknown): EventPatch {
   const source = asObject(body);
-  onlyKeys(source, ['id', 'title', 'body', 'status', 'session', 'date', 'visibleToPlayers']);
+  onlyKeys(source, ['id', 'title', 'body', 'session', 'visibleToPlayers']);
   const patch: EventPatch = {};
   if (source.title !== undefined) patch.title = title(source.title);
   if (source.body !== undefined) patch.body = text(source.body, 'body', EVENT_BODY_MAX);
-  if (source.status !== undefined) patch.status = status(source.status);
   if (source.session !== undefined) patch.session = session(source.session);
-  if (source.date !== undefined) patch.date = date(source.date);
   if (source.visibleToPlayers !== undefined) patch.visibleToPlayers = bool(source.visibleToPlayers, 'visibleToPlayers');
   if (Object.keys(patch).length === 0) throw new HttpError(400, 'No hay campos para actualizar');
   return patch;
@@ -177,7 +140,14 @@ let indexReady: Promise<unknown> | undefined;
 
 async function events(): Promise<Collection> {
   const col = (await getDb()).collection('events');
-  indexReady ??= col.createIndex({ order: 1 }).catch(error => {
+  // Una vez por arranque: índice y limpieza de campos del modelo antiguo (fecha / pasado-futuro).
+  indexReady ??= Promise.all([
+    col.createIndex({ order: 1 }),
+    col.updateMany(
+      { $or: [{ status: { $exists: true } }, { date: { $exists: true } }] },
+      { $unset: { status: '', date: '' } },
+    ),
+  ]).catch(error => {
     indexReady = undefined;
     throw error;
   });
@@ -192,18 +162,15 @@ function iso(value: unknown): string | undefined {
 }
 
 function toEvent(doc: Document): CampaignEvent {
-  const st: EventStatus = doc.status === 'futuro' ? 'futuro' : 'pasado';
   const event: CampaignEvent = {
     id: String(doc._id),
     title: typeof doc.title === 'string' ? doc.title : '',
     body: typeof doc.body === 'string' ? doc.body : '',
-    status: st,
-    visibleToPlayers: typeof doc.visibleToPlayers === 'boolean' ? doc.visibleToPlayers : st === 'pasado',
+    visibleToPlayers: doc.visibleToPlayers === true,
     order: typeof doc.order === 'number' ? doc.order : 0,
     createdAt: iso(doc.createdAt) ?? '',
   };
   if (typeof doc.session === 'string' && doc.session) event.session = doc.session;
-  if (typeof doc.date === 'string' && doc.date) event.date = doc.date;
   const updatedAt = iso(doc.updatedAt);
   if (updatedAt) event.updatedAt = updatedAt;
   return event;
@@ -257,16 +224,15 @@ export async function updateEvent(id: string, patch: EventPatch): Promise<Campai
   const col = await events();
   const _id = new ObjectId(id);
   const $set: Document = { updatedAt: new Date() };
-  const $unset: Document = {};
+  const $unset: Document = { status: '', date: '' };
   for (const [key, value] of Object.entries(patch)) {
     if (value === null || value === '') {
-      if (key === 'session' || key === 'date') $unset[key] = '';
+      if (key === 'session') $unset[key] = '';
     } else {
       $set[key] = value;
     }
   }
-  const update: Document = { $set };
-  if (Object.keys($unset).length > 0) update.$unset = $unset;
+  const update: Document = { $set, $unset };
   const result = await col.updateOne({ _id }, update);
   if (result.matchedCount === 0) throw new HttpError(404, MISSING);
   const doc = await col.findOne({ _id });
