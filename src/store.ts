@@ -1320,7 +1320,7 @@ export async function deleteAugment(id: string): Promise<{ id: string }> {
 export async function mongoStatus() {
   const db = await getDb();
   await db.command({ ping: 1 });
-  const names = ['champions', 'items', 'players', 'roles', 'loot', 'party', 'rollHistoric', 'craftHistoric', 'buyHistoric', 'sellHistoric', 'tickets', 'augments', 'mapPois', 'faq', 'npcs', 'relations'] as const;
+  const names = ['champions', 'items', 'players', 'roles', 'loot', 'party', 'rollHistoric', 'craftHistoric', 'buyHistoric', 'sellHistoric', 'tickets', 'augments', 'mapPois', 'faq', 'npcs', 'relations', 'events'] as const;
   const counts = Object.fromEntries(
     await Promise.all(names.map(async name => [name, await db.collection(name).estimatedDocumentCount()] as const)),
   );

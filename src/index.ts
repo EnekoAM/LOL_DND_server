@@ -3,6 +3,7 @@ import express, { type NextFunction, type Request, type Response } from 'express
 import augments from './api/augments';
 import champions from './api/champions';
 import craft from './api/craft';
+import events from './api/events';
 import faq from './api/faq';
 import health from './api/health';
 import history from './api/history';
@@ -139,6 +140,12 @@ app.delete('/api/relations', adapt(relations));
 // Notas privadas de cada player sobre campeones y NPCs (X-App-Player); solo las suyas, el admin no tiene.
 app.get('/api/player-notes', adapt(playerNotes));
 app.put('/api/player-notes', adapt(playerNotes));
+// Eventos de la campaña (sesiones pasadas y futuras): leer cualquiera (players solo los visibles); crear/editar/reordenar/borrar solo admin.
+app.get('/api/events', adapt(events));
+app.post('/api/events', adapt(events));
+app.patch('/api/events', adapt(events));
+app.put('/api/events', adapt(events));
+app.delete('/api/events', adapt(events));
 app.get('/api/loot', adapt(loot));
 app.patch('/api/loot', adapt(loot));
 app.get('/api/party', adapt(party));
