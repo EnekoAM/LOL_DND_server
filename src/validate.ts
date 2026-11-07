@@ -670,6 +670,8 @@ export type ChampionAbilityDamage = {
   type?: string;
   ap?: number[];
   ad?: number[];
+  adSource?: 'total' | 'bonus';
+  apSource?: 'total' | 'bonus';
   damageBonus?: number;
 };
 
@@ -721,6 +723,13 @@ function parseDamage(value: unknown): ChampionAbilityDamage | undefined {
   const ad = finiteNumbers(source.ad, 'damage.ad');
   if (ap) damage.ap = ap;
   if (ad) damage.ad = ad;
+  for (const key of ['adSource', 'apSource'] as const) {
+    if (source[key] === undefined) continue; // Legacy abilities default to total.
+    if (source[key] !== 'total' && source[key] !== 'bonus') {
+      throw new HttpError(400, `damage.${key} tiene que ser total o bonus`);
+    }
+    damage[key] = source[key];
+  }
   if (source.damageBonus !== undefined) {
     if (typeof source.damageBonus !== 'number' || !Number.isFinite(source.damageBonus)) {
       throw new HttpError(400, 'damage.damageBonus tiene que ser un número');
