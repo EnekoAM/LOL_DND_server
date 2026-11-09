@@ -17,7 +17,8 @@
     "migrate:loot": "set NODE_OPTIONS=--use-system-ca&& tsx scripts/migrate-loot-rules.ts",
     "migrate:ranks": "set NODE_OPTIONS=--use-system-ca&& tsx scripts/migrate-ability-ranks.ts",
     "migrate:skills": "set NODE_OPTIONS=--use-system-ca&& tsx scripts/migrate-skills.ts",
-    "migrate:boots": "set NODE_OPTIONS=--use-system-ca&& tsx scripts/migrate-boots-quest.ts"
+    "migrate:boots": "set NODE_OPTIONS=--use-system-ca&& tsx scripts/migrate-boots-quest.ts",
+    "migrate:stat-names": "set NODE_OPTIONS=--use-system-ca&& tsx scripts/migrate-stat-names.ts"
   },
   "dependencies": {
     "ably": "^2.30.0",

@@ -11,9 +11,9 @@ export const ROLE_MAX_LEVEL = 20;
  */
 
 /**
- * AC 10, MR 5, crítico 0 / 1,5 y el resto de columnas de porcentaje a 0 en todas las tablas.
+ * AC 10, MR 5 de relleno (cada rol pone las suyas con withDefense), crítico 0 / 1,5 y el resto de columnas de porcentaje a 0.
  * HP: se calcula con withHp() a partir de la vida base de cada rol.
- * Cambian maná, AD, AP, SPE, ATK_SPE y AB_SPE.
+ * Cambian maná, AD, AP, SPE, Attacks y Abilities.
  */
 function row(
   mana: number,
@@ -39,6 +39,8 @@ function row(
     abSpePct: 0,
     lethality: 0,
     magicPen: 0,
+    armorPenPct: 0,
+    magicPenPct: 0,
   };
 }
 
@@ -175,6 +177,35 @@ const support: StatLine[] = [
   row(290, '2d4+5d2', '2d4+5d2', 11, 1, 6),
 ];
 
+/**
+ * AC y MR base del rol en nivel 1-5; +1 a las dos en los niveles 6, 11 y 16 (16-20 = base + 3).
+ */
+const DEFENSE_TIER_STARTS = [6, 11, 16];
+
+function withDefense(levels: StatLine[], ac: number, mr: number): StatLine[] {
+  return levels.map((level, index) => {
+    const tier = DEFENSE_TIER_STARTS.filter(start => index + 1 >= start).length;
+    return { ...level, ac: ac + tier, mr: mr + tier };
+  });
+}
+
+type Bands = [number, number, number, number];
+
+/**
+ * Attacks (atkSpe) y Abilities (abSpe) por tramos de nivel 1-5 / 6-10 / 11-15 / 16-20.
+ * null = deja los valores por nivel de la tabla de arriba.
+ */
+function withActions(levels: StatLine[], atk: Bands | null, ab: Bands | null): StatLine[] {
+  return levels.map((level, index) => {
+    const tier = DEFENSE_TIER_STARTS.filter(start => index + 1 >= start).length;
+    return {
+      ...level,
+      ...(atk ? { atkSpe: atk[tier] } : {}),
+      ...(ab ? { abSpe: ab[tier] } : {}),
+    };
+  });
+}
+
 const luchadorAdMana = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90];
 
 const luchadorAp: StatLine[] = [
@@ -220,19 +251,23 @@ const tanque: StatLine[] = [
 ];
 
 export const DEFAULT_ROLE_TABLES: RoleTable[] = [
-  { id: 'mago', name: 'Mago', levels: withHp(mago, 8) },
-  { id: 'asesino-ad', name: 'Asesino AD', levels: withHp(asesinoAd, 9) },
-  { id: 'asesino-ap', name: 'Asesino AP', levels: withHp(asesinoAp, 9) },
-  { id: 'tirador', name: 'Tirador', levels: withHp(tirador, 9) },
-  { id: 'support', name: 'Support', levels: withHp(support, 10) },
+  { id: 'mago', name: 'Mago', levels: withDefense(withHp(mago, 8), 9, 5) },
+  { id: 'asesino-ad', name: 'Asesino AD', levels: withActions(withDefense(withHp(asesinoAd, 9), 10, 5), [1, 2, 2, 2], [2, 3, 3, 4]) },
+  { id: 'asesino-ap', name: 'Asesino AP', levels: withActions(withDefense(withHp(asesinoAp, 9), 10, 5), [1, 1, 2, 2], [2, 3, 4, 4]) },
+  { id: 'tirador', name: 'Tirador', levels: withActions(withDefense(withHp(tirador, 9), 9, 5), null, [1, 1, 2, 2]) },
+  { id: 'support', name: 'Support', levels: withActions(withDefense(withHp(support, 10), 10, 5), null, [2, 3, 4, 5]) },
   {
     id: 'luchador-ad',
     name: 'Luchador AD',
-    levels: withHp(
-      tirador.map((level, index) => ({ ...level, mana: luchadorAdMana[index] })),
+    levels: withDefense(
+      withHp(
+        tirador.map((level, index) => ({ ...level, mana: luchadorAdMana[index] })),
+        11,
+      ),
       11,
+      6,
     ),
   },
-  { id: 'luchador-ap', name: 'Luchador AP', levels: withHp(luchadorAp, 11) },
-  { id: 'tanque', name: 'Tanque', levels: withHp(tanque, 13, [10, 15, 20]) },
+  { id: 'luchador-ap', name: 'Luchador AP', levels: withDefense(withHp(luchadorAp, 11), 11, 6) },
+  { id: 'tanque', name: 'Tanque', levels: withActions(withDefense(withHp(tanque, 13, [10, 15, 20]), 12, 6), null, [1, 1, 2, 2]) },
 ];

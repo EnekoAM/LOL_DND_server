@@ -23,8 +23,9 @@ const CI = { locale: 'es', strength: 2 } as const;
 
 const emptyStats = {
   HP: 0, AC: 0, MR: 0, MANA: 0, AD: 0, AP: 0,
-  CRIT_CHANCE: 0, CRIT_DAMAGE: 0, SPE: 0, ATK_SPE_PCT: 0,
-  AB_SPE_PCT: 0, LETHALITY: 0, MAGIC_PEN: 0,
+  CRIT_CHANCE: 0, CRIT_DAMAGE: 0, SPE: 0, 'ATK spe': 0,
+  'Ab haste': 0, LETHALITY: 0, MAGIC_PEN: 0,
+  'Armor pen %': 0, 'Magic pen %': 0,
 };
 
 async function migrate() {

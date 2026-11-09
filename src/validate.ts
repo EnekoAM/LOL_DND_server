@@ -480,7 +480,12 @@ export const SHEET_STAT_KEYS = [
   'abSpePct',
   'lethality',
   'magicPen',
+  'armorPenPct',
+  'magicPenPct',
 ] as const;
+
+/** Stats añadidas después: las tablas de rol antiguas no las traen y valen 0. */
+const OPTIONAL_ROLE_STAT_KEYS: readonly SheetStatKey[] = ['armorPenPct', 'magicPenPct'];
 
 export type SheetStatKey = (typeof SHEET_STAT_KEYS)[number];
 
@@ -1132,6 +1137,10 @@ function roleStatLine(value: unknown, index: number): RoleStatLine {
   const line = {} as RoleStatLine;
   for (const key of SHEET_STAT_KEYS) {
     const raw = source[key];
+    if (raw === undefined && OPTIONAL_ROLE_STAT_KEYS.includes(key)) {
+      line[key] = 0;
+      continue;
+    }
     if (typeof raw === 'number' && Number.isFinite(raw)) {
       line[key] = raw;
       continue;
