@@ -22,6 +22,7 @@ type PlayerDoc = Document & {
   unlocks?: Partial<Record<'quest' | 'aumentos' | 'questTop' | 'questTopAssigned' | 'questVisible' | 'aumentosVisible', boolean>>;
   quests?: PlayerPatch['quests'];
   aumentos?: PlayerPatch['aumentos'];
+  mechanic?: PlayerPatch['mechanic'];
 };
 
 type StringIdDoc = Document & { _id: string };
@@ -871,6 +872,8 @@ export async function updatePlayer(name: string, patch: PlayerPatch) {
   if (patch.aumentos) $set.aumentos = patch.aumentos;
   if (patch.background === null) $unset.background = '';
   else if (patch.background) $set.background = patch.background;
+  if (patch.mechanic === null) $unset.mechanic = '';
+  else if (patch.mechanic) $set.mechanic = patch.mechanic;
   if (patch.sheet === null) $unset.sheet = '';
   else if (patch.sheet) $set.sheet = patch.sheet;
   if (patch.basicAttack === null) $unset.basicAttack = '';

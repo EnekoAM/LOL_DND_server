@@ -105,6 +105,8 @@ export type PlayerPatch = {
   aumentos?: PlayerAumento[];
   /** URL de la imagen de fondo de la ficha de este player. null la quita. */
   background?: string | null;
+  /** Mecánica de personaje (Ruina / Humanidad / Fama). null la quita. */
+  mechanic?: PlayerMechanic | null;
 };
 
 export type PlayerQuest = { id: string; name: string; description?: string; reward?: string; done: boolean; hidden?: boolean };
@@ -627,6 +629,71 @@ function playerBackground(value: unknown): string | null {
   return url || null;
 }
 
+
+const FAMA_REGIONS = [
+  'Demacia', 'Noxus', 'Freljord', 'Jonia', 'Piltover', 'Zaun',
+  'Shurima', 'Targon', 'Bilgewater', 'Islas de la Sombra', 'Ixtal', 'Bandle',
+] as const;
+
+const RUINA_MIN = 1;
+const RUINA_MAX = 20;
+const HUMANIDAD_MIN = -10;
+const HUMANIDAD_MAX = 10;
+
+export type PlayerMechanic =
+  | { type: 'ruina'; value: number }
+  | { type: 'humanidad'; value: number }
+  | { type: 'fama'; regions: Record<string, number> };
+
+function playerMechanic(value: unknown): PlayerMechanic {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new HttpError(400, 'mechanic tiene que ser un objeto');
+  }
+  const source = value as Record<string, unknown>;
+  const type = source.type;
+  if (type === 'ruina' || type === 'humanidad') {
+    const raw = source.value;
+    if (typeof raw !== 'number' || !Number.isInteger(raw)) {
+      throw new HttpError(400, 'mechanic.value tiene que ser un entero');
+    }
+    if (type === 'ruina') {
+      if (raw < RUINA_MIN || raw > RUINA_MAX) {
+        throw new HttpError(400, `mechanic.value (ruina) tiene que estar entre ${RUINA_MIN} y ${RUINA_MAX}`);
+      }
+      return { type: 'ruina', value: raw };
+    }
+    if (raw < HUMANIDAD_MIN || raw > HUMANIDAD_MAX) {
+      throw new HttpError(400, `mechanic.value (humanidad) tiene que estar entre ${HUMANIDAD_MIN} y ${HUMANIDAD_MAX}`);
+    }
+    return { type: 'humanidad', value: raw };
+  }
+  if (type === 'fama') {
+    if (!source.regions || typeof source.regions !== 'object' || Array.isArray(source.regions)) {
+      throw new HttpError(400, 'mechanic.regions tiene que ser un objeto');
+    }
+    const rawRegions = source.regions as Record<string, unknown>;
+    for (const key of Object.keys(rawRegions)) {
+      if (!(FAMA_REGIONS as readonly string[]).includes(key)) {
+        throw new HttpError(400, `Región de fama desconocida: ${key}`);
+      }
+    }
+    const regions: Record<string, number> = {};
+    for (const region of FAMA_REGIONS) {
+      const raw = rawRegions[region];
+      if (raw === undefined) {
+        regions[region] = 0;
+        continue;
+      }
+      if (typeof raw !== 'number' || !Number.isInteger(raw)) {
+        throw new HttpError(400, `mechanic.regions.${region} tiene que ser un entero`);
+      }
+      regions[region] = raw;
+    }
+    return { type: 'fama', regions };
+  }
+  throw new HttpError(400, 'mechanic.type tiene que ser ruina, humanidad o fama');
+}
+
 export function parsePlayerPatch(body: unknown): PlayerPatch {
   const source = asObject(body);
   const patch: PlayerPatch = {};
@@ -660,6 +727,7 @@ export function parsePlayerPatch(body: unknown): PlayerPatch {
   if ('quests' in source) patch.quests = playerQuests(source.quests);
   if ('aumentos' in source) patch.aumentos = playerAumentos(source.aumentos);
   if ('background' in source) patch.background = playerBackground(source.background);
+  if ('mechanic' in source) patch.mechanic = source.mechanic === null ? null : playerMechanic(source.mechanic);
   if ('unassignedPoints' in source) {
     throw new HttpError(400, 'unassignedPoints se calcula (nivel − puntos gastados); cambia abilityRanks');
   }
