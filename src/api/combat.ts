@@ -12,7 +12,8 @@ function assertAdminRole(req: ApiRequest): void {
 
 /** Combate activo: leer cualquiera; sustituir/terminar solo admin + write key. */
 export default withLive(
-  { PUT: ['combat'], PATCH: ['combat'], POST: ['combat', 'players'] },
+  // players también: al terminar hay que refrescar CD/efectos en todas las pestañas.
+  { PUT: ['combat', 'players'], PATCH: ['combat', 'players'], POST: ['combat', 'players'] },
   withErrors(async (req, res) => {
     if (req.method === 'GET') {
       res.status(200).json(await getCombat());
@@ -21,14 +22,20 @@ export default withLive(
     if (req.method === 'POST') {
       assertWriteAccess(req);
       assertAdminRole(req);
-      // Terminar: vacía Preparación y limpia CD/efectos de los players del combate.
       res.status(200).json(await endCombatAndResetTrackers());
       return;
     }
     if (req.method === 'PUT' || req.method === 'PATCH') {
       assertWriteAccess(req);
       assertAdminRole(req);
-      res.status(200).json(await replaceCombat(parseCombatState(req.body)));
+      const next = parseCombatState(req.body);
+      const current = await getCombat();
+      // Cualquier vuelta a Preparación desde combate activo: reset completo.
+      if (current.active && !next.active) {
+        res.status(200).json(await endCombatAndResetTrackers());
+        return;
+      }
+      res.status(200).json(await replaceCombat(next));
       return;
     }
     throw new HttpError(405, 'Método no permitido');

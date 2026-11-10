@@ -2223,11 +2223,18 @@ export async function endCombatAndResetTrackers(): Promise<CombatState & { updat
     const col = await players();
     const updatedAt = new Date().toISOString();
     for (const name of names) {
-      await col.updateOne(
+      const result = await col.updateOne(
         { name },
         { $set: { cooldowns: {}, activeEffects: {}, updatedAt } },
         { collation: CI },
       );
+      // Si la collation no matchea (nombre distinto en DB), intenta exacto.
+      if (result.matchedCount === 0) {
+        await col.updateOne(
+          { name },
+          { $set: { cooldowns: {}, activeEffects: {}, updatedAt } },
+        );
+      }
     }
   }
 
