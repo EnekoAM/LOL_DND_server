@@ -1,4 +1,5 @@
 import { RANKED_SLOTS, maxRank, type RankedSlot } from './abilityRanks';
+import { RESOURCE_IDS, isResourceId, type ResourceId } from './resources';
 import { HttpError } from './errors';
 
 const PARTY_FIELDS = ['gold', 'level', 'exp', 'expToNextLevel'] as const;
@@ -782,6 +783,14 @@ export type ChampionAbility = {
   maxStacks?: number;
   /** Cooldown en turnos propios. */
   cooldown?: number;
+  /** Duración del efecto en turnos. */
+  effectDuration?: number;
+  /** Destino del efecto al activar. Ausente = self. */
+  effectTarget?: 'self' | 'enemy';
+  /** Nombre del estado en combate si el objetivo es enemigo. */
+  effectName?: string;
+  /** Recurso que gasta. Ausente = el del campeón. */
+  resource?: ResourceId;
 };
 
 export type ChampionAbilityPatch = {
@@ -901,6 +910,28 @@ export function parseChampionAbilityPatch(body: unknown): ChampionAbilityPatch {
     }
     ability.cooldown = abilitySource.cooldown;
   }
+  if ('effectDuration' in abilitySource && abilitySource.effectDuration !== undefined && abilitySource.effectDuration !== null) {
+    if (typeof abilitySource.effectDuration !== 'number' || !Number.isInteger(abilitySource.effectDuration) || abilitySource.effectDuration < 1 || abilitySource.effectDuration > 999) {
+      throw new HttpError(400, 'effectDuration tiene que ser un entero entre 1 y 999');
+    }
+    ability.effectDuration = abilitySource.effectDuration;
+  }
+  if ('effectTarget' in abilitySource && abilitySource.effectTarget !== undefined && abilitySource.effectTarget !== null) {
+    if (abilitySource.effectTarget !== 'self' && abilitySource.effectTarget !== 'enemy') {
+      throw new HttpError(400, 'effectTarget tiene que ser self o enemy');
+    }
+    if (abilitySource.effectTarget === 'enemy') ability.effectTarget = 'enemy';
+  }
+  if ('effectName' in abilitySource && abilitySource.effectName !== undefined && abilitySource.effectName !== null) {
+    const effectName = boundedText(abilitySource.effectName, 'effectName', 80);
+    if (effectName) ability.effectName = effectName;
+  }
+  if ('resource' in abilitySource && abilitySource.resource !== undefined && abilitySource.resource !== null && abilitySource.resource !== '') {
+    if (!isResourceId(abilitySource.resource)) {
+      throw new HttpError(400, 'resource tiene que ser mana, energia, vida, furia, calor, ferocidad, coraje, sangre, escudo, concentracion, ninguno u otro');
+    }
+    ability.resource = abilitySource.resource;
+  }
   return { slot: source.slot as ChampionSlot, ability };
 }
 
@@ -913,7 +944,11 @@ export type ChampionFieldsPatch = {
   image?: string;
   background?: string | null;
   equipamiento?: string[];
+  /** Build deseada (lista de nombres). Ausente en campeones antiguos. */
+  build?: string[];
   active?: boolean;
+  /** null quita el recurso. */
+  resource?: ResourceId | null;
 };
 
 const CHAMPION_LEVEL_MIN = 1;
@@ -1006,6 +1041,16 @@ export function parseChampionFieldsPatch(body: unknown): ChampionFieldsPatch {
     patch.active = source.active;
     touched = true;
   }
+  if ('resource' in source) {
+    if (source.resource === null || source.resource === '') patch.resource = null;
+    else if (isResourceId(source.resource)) patch.resource = source.resource;
+    else throw new HttpError(400, 'resource tiene que ser mana, energia, vida, furia, calor, ferocidad, coraje, sangre, escudo, concentracion, ninguno, otro o null');
+    touched = true;
+  }
+  if ('build' in source) {
+    patch.build = stringList(source.build, 'build');
+    touched = true;
+  }
   if (!touched) throw new HttpError(400, 'El parche del campeón no tiene campos reconocidos');
   return patch;
 }
@@ -1024,6 +1069,10 @@ export type ItemUpdate = {
   cooldown?: number | null;
   /** Duración del efecto en turnos (null lo quita). */
   effectDuration?: number | null;
+  /** Destino del efecto (null / self lo quita). */
+  effectTarget?: 'self' | 'enemy' | null;
+  /** Nombre del estado en combate (null lo quita). */
+  effectName?: string | null;
 };
 
 const ITEM_TEXT_LIMIT = 2000;
@@ -1120,6 +1169,18 @@ export function parseItemUpdate(body: unknown): ItemUpdate {
         throw new HttpError(400, 'effectDuration tiene que ser un entero entre 1 y 999, o null');
       }
       update.effectDuration = source.effectDuration;
+    }
+  }
+  if ('effectTarget' in source) {
+    if (source.effectTarget === null || source.effectTarget === 'self') update.effectTarget = null;
+    else if (source.effectTarget === 'enemy') update.effectTarget = 'enemy';
+    else throw new HttpError(400, 'effectTarget tiene que ser self, enemy o null');
+  }
+  if ('effectName' in source) {
+    if (source.effectName === null) update.effectName = null;
+    else {
+      const effectName = boundedText(source.effectName, 'effectName', 80);
+      update.effectName = effectName || null;
     }
   }
   return update;
@@ -1924,6 +1985,10 @@ export type CombatEffect = {
   duration: number;
   /** Valor numérico opcional (p. ej. reducción de AC/MR). */
   value?: number;
+  /** Acumulaciones del estado. */
+  stacks?: number;
+  /** Origen: item:<nombre> o ability:<nombre>. */
+  source?: string;
 };
 
 export type CombatParticipant = {
@@ -1942,6 +2007,10 @@ export type CombatParticipant = {
   defeated: boolean;
   image?: string;
   effects: CombatEffect[];
+  /** Recurso actual del campeón en este combate. */
+  currentResource?: number;
+  cooldowns?: Record<string, number>;
+  activeEffects?: Record<string, number>;
 };
 
 export type CombatState = {
@@ -1954,7 +2023,7 @@ export type CombatState = {
 };
 
 const COMBAT_NAME_MAX = 80;
-const COMBAT_EFFECT_NAME_MAX = 40;
+const COMBAT_EFFECT_NAME_MAX = 80;
 const COMBAT_MAX_PARTICIPANTS = 40;
 const COMBAT_MAX_EFFECTS = 12;
 
@@ -1982,6 +2051,19 @@ function combatEffect(value: unknown): CombatEffect {
       throw new HttpError(400, 'effect.value tiene que ser un entero entre 1 y 99');
     }
     effect.value = source.value;
+  }
+  if ('stacks' in source && source.stacks !== undefined && source.stacks !== null) {
+    if (typeof source.stacks !== 'number' || !Number.isInteger(source.stacks) || source.stacks < 1 || source.stacks > 999) {
+      throw new HttpError(400, 'effect.stacks tiene que ser un entero entre 1 y 999');
+    }
+    effect.stacks = source.stacks;
+  }
+  if ('source' in source && source.source !== undefined && source.source !== null) {
+    const key = boundedText(source.source, 'effect.source', 120);
+    if (!key || key.includes('.') || key.startsWith('$') || (!key.startsWith('item:') && !key.startsWith('ability:'))) {
+      throw new HttpError(400, 'effect.source tiene que ser item:<nombre> o ability:<nombre>');
+    }
+    effect.source = key;
   }
   return effect;
 }
@@ -2034,6 +2116,15 @@ function combatParticipant(value: unknown): CombatParticipant {
   if (source.image !== undefined) {
     const image = boundedText(source.image, 'image', 2000);
     if (image) participant.image = image;
+  }
+  if (source.currentResource !== undefined) {
+    participant.currentResource = nonNegInt(source.currentResource, 'currentResource');
+  }
+  if (source.cooldowns !== undefined && source.cooldowns !== null) {
+    participant.cooldowns = parsePlayerCooldowns(source.cooldowns);
+  }
+  if (source.activeEffects !== undefined && source.activeEffects !== null) {
+    participant.activeEffects = parsePlayerActiveEffects(source.activeEffects);
   }
   return participant;
 }
@@ -2128,7 +2219,7 @@ const ACTIVE_EFFECTS_MAX_KEYS = 80;
 const ACTIVE_EFFECTS_KEY_MAX = 120;
 const ACTIVE_EFFECTS_VALUE_MAX = 999;
 
-/** Efectos de ítem activos. Claves: item:<nombre>. Unidad: turnos. */
+/** Efectos activos. Claves: item:<nombre> | ability:<nombre>. Unidad: turnos. */
 export function parsePlayerActiveEffects(value: unknown): Record<string, number> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new HttpError(400, 'activeEffects tiene que ser un objeto');
@@ -2144,8 +2235,8 @@ export function parsePlayerActiveEffects(value: unknown): Record<string, number>
     if (!key || key.length > ACTIVE_EFFECTS_KEY_MAX || key.includes('.') || key.startsWith('$')) {
       throw new HttpError(400, `Clave de activeEffect no válida: ${rawKey}`);
     }
-    if (!key.startsWith('item:')) {
-      throw new HttpError(400, `Clave de activeEffect debe empezar por item: (${key})`);
+    if (!key.startsWith('item:') && !key.startsWith('ability:')) {
+      throw new HttpError(400, `Clave de activeEffect debe empezar por item: o ability: (${key})`);
     }
     if (typeof rawVal !== 'number' || !Number.isFinite(rawVal) || !Number.isInteger(rawVal) || rawVal < 0) {
       throw new HttpError(400, `activeEffects[${key}] tiene que ser un entero ≥ 0`);

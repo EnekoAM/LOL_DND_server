@@ -73,9 +73,14 @@ export async function updateChampionFields(champion: string, patch: ChampionFiel
   if (patch.image !== undefined) $set.image = patch.image;
   if (patch.active !== undefined) $set.active = patch.active;
   if (patch.equipamiento !== undefined) $set.equipamiento = patch.equipamiento;
+  if (patch.build !== undefined) $set.build = patch.build;
   if (patch.background !== undefined) {
     if (patch.background === null) $unset.background = '';
     else $set.background = patch.background;
+  }
+  if (patch.resource !== undefined) {
+    if (patch.resource === null) $unset.resource = '';
+    else $set.resource = patch.resource;
   }
   const update: Record<string, unknown> = { $set };
   if (Object.keys($unset).length) update.$unset = $unset;
@@ -127,6 +132,10 @@ export async function updateItem(nombre: string, update: ItemUpdate) {
   else if (typeof update.cooldown === 'number') set.cooldown = update.cooldown;
   if (update.effectDuration === null) unset.effectDuration = '';
   else if (typeof update.effectDuration === 'number') set.effectDuration = update.effectDuration;
+  if (update.effectTarget === null || update.effectTarget === 'self') unset.effectTarget = '';
+  else if (update.effectTarget === 'enemy') set.effectTarget = 'enemy';
+  if (update.effectName === null) unset.effectName = '';
+  else if (typeof update.effectName === 'string') set.effectName = update.effectName;
 
   const updateDoc: Document = Object.keys(unset).length ? { $set: set, $unset: unset } : { $set: set };
   await col.updateOne({ _id: existing._id }, updateDoc);
