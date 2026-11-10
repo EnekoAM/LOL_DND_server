@@ -91,6 +91,8 @@ export type PlayerPatch = {
   actualMana?: number;
   /** Inspiración D&D (sí/no). */
   inspiration?: boolean;
+  /** Color del icono de inspiración (#RRGGBB). null lo quita. */
+  accentColor?: string | null;
   /** Descansos cortos usados desde el último largo (0–2). */
   shortRestsUsed?: number;
   /** Ficha D&D (rol, características y extra). null la borra. */
@@ -107,6 +109,12 @@ export type PlayerPatch = {
   background?: string | null;
   /** Mecánica de personaje (Ruina / Humanidad / Fama). null la quita. */
   mechanic?: PlayerMechanic | null;
+  /** Contadores de stacks (item:<nombre> | ability:<nombre>). */
+  stacks?: Record<string, number>;
+  /** Cooldowns restantes (item:<nombre> | ability:<nombre>). */
+  cooldowns?: Record<string, number>;
+  /** Efectos de ítem activos restantes (item:<nombre>). */
+  activeEffects?: Record<string, number>;
 };
 
 export type PlayerQuest = { id: string; name: string; description?: string; reward?: string; done: boolean; hidden?: boolean };
@@ -714,6 +722,12 @@ export function parsePlayerPatch(body: unknown): PlayerPatch {
     if (typeof source.inspiration !== 'boolean') throw new HttpError(400, 'inspiration tiene que ser true o false');
     patch.inspiration = source.inspiration;
   }
+  if ('accentColor' in source) {
+    if (source.accentColor === null) patch.accentColor = null;
+    else if (typeof source.accentColor !== 'string' || !/^#[0-9a-fA-F]{6}$/.test(source.accentColor)) {
+      throw new HttpError(400, 'accentColor tiene que ser un color hex #RRGGBB o null');
+    } else patch.accentColor = source.accentColor.toLowerCase();
+  }
   if ('shortRestsUsed' in source) {
     const value = source.shortRestsUsed;
     if (typeof value !== 'number' || !Number.isInteger(value) || value < 0 || value > 2) {
@@ -728,6 +742,9 @@ export function parsePlayerPatch(body: unknown): PlayerPatch {
   if ('aumentos' in source) patch.aumentos = playerAumentos(source.aumentos);
   if ('background' in source) patch.background = playerBackground(source.background);
   if ('mechanic' in source) patch.mechanic = source.mechanic === null ? null : playerMechanic(source.mechanic);
+  if ('stacks' in source) patch.stacks = parsePlayerStacks(source.stacks);
+  if ('cooldowns' in source) patch.cooldowns = parsePlayerCooldowns(source.cooldowns);
+  if ('activeEffects' in source) patch.activeEffects = parsePlayerActiveEffects(source.activeEffects);
   if ('unassignedPoints' in source) {
     throw new HttpError(400, 'unassignedPoints se calcula (nivel − puntos gastados); cambia abilityRanks');
   }
@@ -761,6 +778,10 @@ export type ChampionAbility = {
   damage?: ChampionAbilityDamage;
   effect?: ChampionAbilityEffect[];
   cost?: string;
+  hasStacks?: boolean;
+  maxStacks?: number;
+  /** Cooldown en turnos propios. */
+  cooldown?: number;
 };
 
 export type ChampionAbilityPatch = {
@@ -863,6 +884,22 @@ export function parseChampionAbilityPatch(body: unknown): ChampionAbilityPatch {
   if ('effect' in abilitySource) {
     const effect = parseEffects(abilitySource.effect);
     if (effect) ability.effect = effect;
+  }
+  if ('hasStacks' in abilitySource) {
+    if (typeof abilitySource.hasStacks !== 'boolean') throw new HttpError(400, 'hasStacks tiene que ser true o false');
+    ability.hasStacks = abilitySource.hasStacks;
+  }
+  if ('maxStacks' in abilitySource && abilitySource.maxStacks !== undefined && abilitySource.maxStacks !== null) {
+    if (typeof abilitySource.maxStacks !== 'number' || !Number.isInteger(abilitySource.maxStacks) || abilitySource.maxStacks < 1 || abilitySource.maxStacks > 999) {
+      throw new HttpError(400, 'maxStacks tiene que ser un entero entre 1 y 999');
+    }
+    ability.maxStacks = abilitySource.maxStacks;
+  }
+  if ('cooldown' in abilitySource && abilitySource.cooldown !== undefined && abilitySource.cooldown !== null) {
+    if (typeof abilitySource.cooldown !== 'number' || !Number.isInteger(abilitySource.cooldown) || abilitySource.cooldown < 1 || abilitySource.cooldown > 999) {
+      throw new HttpError(400, 'cooldown tiene que ser un entero entre 1 y 999');
+    }
+    ability.cooldown = abilitySource.cooldown;
   }
   return { slot: source.slot as ChampionSlot, ability };
 }
@@ -979,6 +1016,14 @@ export type ItemUpdate = {
   stats: Record<string, number | string>;
   /** undefined deja el coste como está; null lo quita. */
   coste?: number | null;
+  /** Ítem con acumulaciones (stacks) en la ficha. */
+  hasStacks?: boolean;
+  /** Máximo opcional de stacks; null/omitido = sin tope. */
+  maxStacks?: number | null;
+  /** Cooldown en turnos (null lo quita). */
+  cooldown?: number | null;
+  /** Duración del efecto en turnos (null lo quita). */
+  effectDuration?: number | null;
 };
 
 const ITEM_TEXT_LIMIT = 2000;
@@ -1045,6 +1090,37 @@ export function parseItemUpdate(body: unknown): ItemUpdate {
       throw new HttpError(400, 'coste tiene que ser un número igual o mayor que 0');
     }
     update.coste = source.coste;
+  }
+  if ('hasStacks' in source) {
+    if (typeof source.hasStacks !== 'boolean') throw new HttpError(400, 'hasStacks tiene que ser true o false');
+    update.hasStacks = source.hasStacks;
+  }
+  if ('maxStacks' in source) {
+    if (source.maxStacks === null) update.maxStacks = null;
+    else {
+      if (typeof source.maxStacks !== 'number' || !Number.isInteger(source.maxStacks) || source.maxStacks < 1 || source.maxStacks > 999) {
+        throw new HttpError(400, 'maxStacks tiene que ser un entero entre 1 y 999, o null');
+      }
+      update.maxStacks = source.maxStacks;
+    }
+  }
+  if ('cooldown' in source) {
+    if (source.cooldown === null) update.cooldown = null;
+    else {
+      if (typeof source.cooldown !== 'number' || !Number.isInteger(source.cooldown) || source.cooldown < 1 || source.cooldown > 999) {
+        throw new HttpError(400, 'cooldown tiene que ser un entero entre 1 y 999, o null');
+      }
+      update.cooldown = source.cooldown;
+    }
+  }
+  if ('effectDuration' in source) {
+    if (source.effectDuration === null) update.effectDuration = null;
+    else {
+      if (typeof source.effectDuration !== 'number' || !Number.isInteger(source.effectDuration) || source.effectDuration < 1 || source.effectDuration > 999) {
+        throw new HttpError(400, 'effectDuration tiene que ser un entero entre 1 y 999, o null');
+      }
+      update.effectDuration = source.effectDuration;
+    }
   }
   return update;
 }
@@ -1656,6 +1732,8 @@ export type NpcInput = {
   imageFrameCircle: NpcImageFrame | null;
   background: string | null;
   description: string;
+  /** Notas públicas visibles para toda la party (distintas de las privadas por player). */
+  publicNotes: string;
   stats: NpcStats;
   abilities: NpcAbility[];
   /** Visible para los players (como «Activo» en campeones). */
@@ -1755,6 +1833,7 @@ export function parseNpcInput(body: unknown, partial = false): Partial<NpcInput>
     out.background = boundedText(source.background, 'La URL del fondo', NPC_URL_MAX) || null;
   }
   if (has('description') || !partial) out.description = boundedText(source.description, 'La descripción', NPC_DESCRIPTION_MAX);
+  if (has('publicNotes') || !partial) out.publicNotes = boundedText(source.publicNotes, 'Las notas públicas', NPC_DESCRIPTION_MAX);
   if (has('stats') || !partial) out.stats = parseNpcStats(source.stats);
   if (has('abilities') || !partial) out.abilities = parseNpcAbilities(source.abilities);
   if (has('visible') && source.visible !== null) {
@@ -1815,4 +1894,266 @@ export function parseRelationPatch(body: unknown): RelationPatch {
   if (source.visibleToPlayers !== undefined) patch.visibleToPlayers = parseRelationVisible(source.visibleToPlayers);
   if (Object.keys(patch).length === 0) throw new HttpError(400, 'No hay campos para actualizar (note, visibleToPlayers)');
   return patch;
+}
+
+// ── Combate (tracker de iniciativa) ──
+
+export const COMBAT_EFFECT_PRESETS = [
+  'Aturdido',
+  'Envenenado',
+  'Ralentizado',
+  'Quemado',
+  'Silenciado',
+  'Enraizado',
+  'Cegado',
+  'Invisible',
+  'Escudo',
+  'Sangrado',
+  'Heridas graves',
+  'MR reducido',
+  'AC reducido',
+] as const;
+
+const COMBAT_PARTICIPANT_KINDS = ['player', 'npc', 'champion', 'custom'] as const;
+export type CombatParticipantKind = (typeof COMBAT_PARTICIPANT_KINDS)[number];
+
+export type CombatEffect = {
+  id: string;
+  name: string;
+  /** Turnos restantes; baja al empezar el turno de este participante. */
+  duration: number;
+  /** Valor numérico opcional (p. ej. reducción de AC/MR). */
+  value?: number;
+};
+
+export type CombatParticipant = {
+  id: string;
+  kind: CombatParticipantKind;
+  name: string;
+  baseName?: string;
+  copyIndex?: number;
+  /** Nombre del player o id del NPC de origen. */
+  sourceId?: string;
+  initiative: number;
+  initiativeBonus?: number;
+  /** Opcional / legacy; la UI ya no escribe PG. */
+  hp?: number;
+  maxHp?: number;
+  defeated: boolean;
+  image?: string;
+  effects: CombatEffect[];
+};
+
+export type CombatState = {
+  active: boolean;
+  round: number;
+  /** Índice en la lista ya ordenada por iniciativa. */
+  turnIndex: number;
+  participants: CombatParticipant[];
+  updatedAt?: string;
+};
+
+const COMBAT_NAME_MAX = 80;
+const COMBAT_EFFECT_NAME_MAX = 40;
+const COMBAT_MAX_PARTICIPANTS = 40;
+const COMBAT_MAX_EFFECTS = 12;
+
+function combatId(value: unknown, field: string): string {
+  if (typeof value !== 'string' || !value.trim()) throw new HttpError(400, `${field} tiene que ser un texto`);
+  const text = value.trim();
+  if (text.length > 64) throw new HttpError(400, `${field} es demasiado largo`);
+  return text;
+}
+
+function combatEffect(value: unknown): CombatEffect {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new HttpError(400, 'Cada efecto tiene que ser un objeto');
+  }
+  const source = value as Record<string, unknown>;
+  const name = boundedText(source.name, 'El nombre del efecto', COMBAT_EFFECT_NAME_MAX);
+  if (!name) throw new HttpError(400, 'Cada efecto necesita un nombre');
+  const effect: CombatEffect = {
+    id: combatId(source.id, 'effect.id'),
+    name,
+    duration: nonNegInt(source.duration, 'effect.duration'),
+  };
+  if ('value' in source && source.value !== undefined && source.value !== null) {
+    if (typeof source.value !== 'number' || !Number.isInteger(source.value) || source.value < 1 || source.value > 99) {
+      throw new HttpError(400, 'effect.value tiene que ser un entero entre 1 y 99');
+    }
+    effect.value = source.value;
+  }
+  return effect;
+}
+
+function combatParticipant(value: unknown): CombatParticipant {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new HttpError(400, 'Cada participante tiene que ser un objeto');
+  }
+  const source = value as Record<string, unknown>;
+  if (typeof source.kind !== 'string' || !COMBAT_PARTICIPANT_KINDS.includes(source.kind as CombatParticipantKind)) {
+    throw new HttpError(400, 'kind tiene que ser player, npc, champion o custom');
+  }
+  const name = boundedText(source.name, 'El nombre del participante', COMBAT_NAME_MAX);
+  if (!name) throw new HttpError(400, 'Cada participante necesita un nombre');
+  if (typeof source.defeated !== 'boolean') throw new HttpError(400, 'defeated tiene que ser true o false');
+  if (!Array.isArray(source.effects)) throw new HttpError(400, 'effects tiene que ser una lista');
+  if (source.effects.length > COMBAT_MAX_EFFECTS) {
+    throw new HttpError(400, `Como máximo ${COMBAT_MAX_EFFECTS} efectos por participante`);
+  }
+  const participant: CombatParticipant = {
+    id: combatId(source.id, 'participant.id'),
+    kind: source.kind as CombatParticipantKind,
+    name,
+    initiative: typeof source.initiative === 'number' && Number.isFinite(source.initiative)
+      ? Math.trunc(source.initiative)
+      : 0,
+    defeated: source.defeated,
+    effects: source.effects.map(combatEffect),
+  };
+  if ('hp' in source && source.hp !== undefined) participant.hp = nonNegInt(source.hp, 'hp');
+  if ('maxHp' in source && source.maxHp !== undefined) participant.maxHp = nonNegInt(source.maxHp, 'maxHp');
+  if (participant.hp !== undefined && participant.maxHp !== undefined && participant.maxHp < participant.hp) {
+    throw new HttpError(400, 'maxHp no puede ser menor que hp');
+  }
+  if (source.baseName !== undefined) {
+    const baseName = boundedText(source.baseName, 'baseName', COMBAT_NAME_MAX);
+    if (baseName) participant.baseName = baseName;
+  }
+  if (source.copyIndex !== undefined) participant.copyIndex = nonNegInt(source.copyIndex, 'copyIndex');
+  if (source.sourceId !== undefined) {
+    const sourceId = boundedText(source.sourceId, 'sourceId', 120);
+    if (sourceId) participant.sourceId = sourceId;
+  }
+  if (source.initiativeBonus !== undefined) {
+    if (typeof source.initiativeBonus !== 'number' || !Number.isFinite(source.initiativeBonus)) {
+      throw new HttpError(400, 'initiativeBonus tiene que ser un número');
+    }
+    participant.initiativeBonus = Math.trunc(source.initiativeBonus);
+  }
+  if (source.image !== undefined) {
+    const image = boundedText(source.image, 'image', 2000);
+    if (image) participant.image = image;
+  }
+  return participant;
+}
+
+export function parseCombatState(body: unknown): CombatState {
+  const source = asObject(body);
+  if (typeof source.active !== 'boolean') throw new HttpError(400, 'active tiene que ser true o false');
+  if (!Array.isArray(source.participants)) throw new HttpError(400, 'participants tiene que ser una lista');
+  if (source.participants.length > COMBAT_MAX_PARTICIPANTS) {
+    throw new HttpError(400, `Como máximo ${COMBAT_MAX_PARTICIPANTS} participantes`);
+  }
+  const participants = source.participants.map(combatParticipant);
+  const ids = new Set(participants.map(p => p.id));
+  if (ids.size !== participants.length) throw new HttpError(400, 'Hay ids de participante duplicados');
+  const round = Math.max(1, nonNegInt(source.round, 'round') || 1);
+  let turnIndex = nonNegInt(source.turnIndex, 'turnIndex');
+  if (participants.length === 0) turnIndex = 0;
+  else if (turnIndex >= participants.length) turnIndex = 0;
+  return { active: source.active, round, turnIndex, participants };
+}
+
+/** Contadores de stacks por player. Claves: item:<nombre> | ability:<nombre>. */
+const STACKS_MAX_KEYS = 80;
+const STACKS_KEY_MAX = 120;
+const STACKS_VALUE_MAX = 999;
+
+export function parsePlayerStacks(value: unknown): Record<string, number> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new HttpError(400, 'stacks tiene que ser un objeto');
+  }
+  const source = value as Record<string, unknown>;
+  const keys = Object.keys(source);
+  if (keys.length > STACKS_MAX_KEYS) {
+    throw new HttpError(400, `Como máximo ${STACKS_MAX_KEYS} contadores de stacks`);
+  }
+  const out: Record<string, number> = {};
+  for (const [rawKey, rawVal] of Object.entries(source)) {
+    const key = rawKey.trim();
+    if (!key || key.length > STACKS_KEY_MAX || key.includes('.') || key.startsWith('$')) {
+      throw new HttpError(400, `Clave de stack no válida: ${rawKey}`);
+    }
+    if (!key.startsWith('item:') && !key.startsWith('ability:')) {
+      throw new HttpError(400, `Clave de stack debe empezar por item: o ability: (${key})`);
+    }
+    if (typeof rawVal !== 'number' || !Number.isFinite(rawVal) || !Number.isInteger(rawVal) || rawVal < 0) {
+      throw new HttpError(400, `stacks[${key}] tiene que ser un entero ≥ 0`);
+    }
+    if (rawVal > STACKS_VALUE_MAX) {
+      throw new HttpError(400, `stacks[${key}] no puede superar ${STACKS_VALUE_MAX}`);
+    }
+    out[key] = rawVal;
+  }
+  return out;
+}
+
+
+/** Cooldowns restantes por player. Claves: item:<nombre> | ability:<nombre>. Unidad: turnos. */
+const COOLDOWNS_MAX_KEYS = 80;
+const COOLDOWNS_KEY_MAX = 120;
+const COOLDOWNS_VALUE_MAX = 999;
+
+export function parsePlayerCooldowns(value: unknown): Record<string, number> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new HttpError(400, 'cooldowns tiene que ser un objeto');
+  }
+  const source = value as Record<string, unknown>;
+  const keys = Object.keys(source);
+  if (keys.length > COOLDOWNS_MAX_KEYS) {
+    throw new HttpError(400, `Como máximo ${COOLDOWNS_MAX_KEYS} cooldowns`);
+  }
+  const out: Record<string, number> = {};
+  for (const [rawKey, rawVal] of Object.entries(source)) {
+    const key = rawKey.trim();
+    if (!key || key.length > COOLDOWNS_KEY_MAX || key.includes('.') || key.startsWith('$')) {
+      throw new HttpError(400, `Clave de cooldown no válida: ${rawKey}`);
+    }
+    if (!key.startsWith('item:') && !key.startsWith('ability:')) {
+      throw new HttpError(400, `Clave de cooldown debe empezar por item: o ability: (${key})`);
+    }
+    if (typeof rawVal !== 'number' || !Number.isFinite(rawVal) || !Number.isInteger(rawVal) || rawVal < 0) {
+      throw new HttpError(400, `cooldowns[${key}] tiene que ser un entero ≥ 0`);
+    }
+    if (rawVal > COOLDOWNS_VALUE_MAX) {
+      throw new HttpError(400, `cooldowns[${key}] no puede superar ${COOLDOWNS_VALUE_MAX}`);
+    }
+    out[key] = rawVal;
+  }
+  return out;
+}
+
+const ACTIVE_EFFECTS_MAX_KEYS = 80;
+const ACTIVE_EFFECTS_KEY_MAX = 120;
+const ACTIVE_EFFECTS_VALUE_MAX = 999;
+
+/** Efectos de ítem activos. Claves: item:<nombre>. Unidad: turnos. */
+export function parsePlayerActiveEffects(value: unknown): Record<string, number> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new HttpError(400, 'activeEffects tiene que ser un objeto');
+  }
+  const source = value as Record<string, unknown>;
+  const keys = Object.keys(source);
+  if (keys.length > ACTIVE_EFFECTS_MAX_KEYS) {
+    throw new HttpError(400, `Como máximo ${ACTIVE_EFFECTS_MAX_KEYS} activeEffects`);
+  }
+  const out: Record<string, number> = {};
+  for (const [rawKey, rawVal] of Object.entries(source)) {
+    const key = rawKey.trim();
+    if (!key || key.length > ACTIVE_EFFECTS_KEY_MAX || key.includes('.') || key.startsWith('$')) {
+      throw new HttpError(400, `Clave de activeEffect no válida: ${rawKey}`);
+    }
+    if (!key.startsWith('item:')) {
+      throw new HttpError(400, `Clave de activeEffect debe empezar por item: (${key})`);
+    }
+    if (typeof rawVal !== 'number' || !Number.isFinite(rawVal) || !Number.isInteger(rawVal) || rawVal < 0) {
+      throw new HttpError(400, `activeEffects[${key}] tiene que ser un entero ≥ 0`);
+    }
+    if (rawVal > ACTIVE_EFFECTS_VALUE_MAX) {
+      throw new HttpError(400, `activeEffects[${key}] no puede superar ${ACTIVE_EFFECTS_VALUE_MAX}`);
+    }
+    out[key] = rawVal;
+  }
+  return out;
 }

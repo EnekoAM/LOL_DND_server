@@ -15,23 +15,24 @@ function assertAdminRole(req: ApiRequest): void {
   if (!isAdmin(req)) throw new HttpError(403, 'Solo el admin puede gestionar los NPCs');
 }
 
-/** Lo único que un player puede editar de un NPC visible: la descripción (vida, resistencias… van dentro del texto). */
-const PLAYER_FIELDS = new Set(['id', 'description']);
+/** Un player puede editar descripción y notas públicas de un NPC visible. El resto sigue siendo admin. */
+const PLAYER_FIELDS = new Set(['id', 'description', 'publicNotes']);
 
 /** Ficha reducida para players: nombre y foto para reconocerlo + descripción; sin habilidades, stats ni el resto de datos. */
 function forPlayer(npc: NpcEntry): NpcEntry {
   return {
     id: npc.id,
     name: npc.name,
-    kind: 'npc',
-    type: '',
-    region: '',
+    kind: npc.kind,
+    type: npc.type,
+    region: npc.region,
     level: 0,
     image: npc.image,
     imageFrame: npc.imageFrame,
     imageFrameCircle: npc.imageFrameCircle,
     background: npc.background,
     description: npc.description,
+    publicNotes: npc.publicNotes ?? '',
     stats: {},
     abilities: [],
     visible: npc.visible,
@@ -40,19 +41,30 @@ function forPlayer(npc: NpcEntry): NpcEntry {
   };
 }
 
-/** PATCH de un player: solo description. Cualquier otro campo se rechaza. */
-function parsePlayerPatch(body: unknown): { description: string } {
+/** PATCH de un player: description y/o publicNotes. Cualquier otro campo se rechaza. */
+function parsePlayerPatch(body: unknown): { description?: string; publicNotes?: string } {
   if (!body || typeof body !== 'object' || Array.isArray(body)) throw new HttpError(400, 'Cuerpo inválido');
   const source = body as Record<string, unknown>;
   if (Object.keys(source).some(key => !PLAYER_FIELDS.has(key))) {
-    throw new HttpError(403, 'Los players solo pueden editar la descripción');
+    throw new HttpError(403, 'Los players solo pueden editar la descripción y las notas públicas');
   }
-  if (!('description' in source)) throw new HttpError(400, 'No hay campos para actualizar');
-  const raw = source.description ?? '';
-  if (typeof raw !== 'string') throw new HttpError(400, 'La descripción tiene que ser un texto');
-  const text = raw.trim();
-  if (text.length > NPC_DESCRIPTION_MAX) throw new HttpError(400, `La descripción admite como máximo ${NPC_DESCRIPTION_MAX} caracteres`);
-  return { description: text };
+  const patch: { description?: string; publicNotes?: string } = {};
+  if ('description' in source) {
+    if (typeof source.description !== 'string') throw new HttpError(400, 'La descripción tiene que ser un texto');
+    const text = source.description.trim();
+    if (text.length > NPC_DESCRIPTION_MAX) throw new HttpError(400, `La descripción admite como máximo ${NPC_DESCRIPTION_MAX} caracteres`);
+    patch.description = text;
+  }
+  if ('publicNotes' in source) {
+    if (typeof source.publicNotes !== 'string') throw new HttpError(400, 'Las notas públicas tienen que ser un texto');
+    const text = source.publicNotes.trim();
+    if (text.length > NPC_DESCRIPTION_MAX) throw new HttpError(400, `Las notas públicas admiten como máximo ${NPC_DESCRIPTION_MAX} caracteres`);
+    patch.publicNotes = text;
+  }
+  if (!('description' in patch) && !('publicNotes' in patch)) {
+    throw new HttpError(400, 'No hay campos para actualizar');
+  }
+  return patch;
 }
 
 function npcId(req: ApiRequest, required = true): string | undefined {
@@ -69,7 +81,7 @@ function npcId(req: ApiRequest, required = true): string | undefined {
  * GET            lista (los players solo reciben los visibles) · ?id= uno
  * POST           crea (admin)
  * PATCH ?id=     admin: edita campos sueltos; abilities/stats se sustituyen enteros.
- *                player: solo description de un NPC visible
+ *                player: description y/o publicNotes de un NPC visible
  * Los players reciben una ficha reducida (nombre, foto y descripción; sin habilidades, stats, tipo, región ni nivel).
  * DELETE ?id=    borra (admin)
  */

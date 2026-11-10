@@ -2,6 +2,7 @@ import compression from 'compression';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import augments from './api/augments';
 import champions from './api/champions';
+import combat from './api/combat';
 import craft from './api/craft';
 import events from './api/events';
 import faq from './api/faq';
@@ -151,6 +152,10 @@ app.patch('/api/loot', adapt(loot));
 app.get('/api/party', adapt(party));
 // Cambiar el nivel recalcula los rangos de habilidad de todos los jugadores.
 app.patch('/api/party', adapt(party));
+app.get('/api/combat', adapt(combat));
+app.put('/api/combat', adapt(combat));
+app.patch('/api/combat', adapt(combat));
+app.post('/api/combat', adapt(combat));
 // El cliente escribe con ?name= (igual que en Vercel); /:name se mantiene por compatibilidad.
 app.get('/api/players', adapt(players));
 app.patch('/api/players', adapt(players));

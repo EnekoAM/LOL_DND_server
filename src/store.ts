@@ -6,7 +6,7 @@ import { RANKED_SLOTS, canRaise, normalizeRanks, ultRankCap, unassignedPoints, t
 import { LOOT_RULE_KEYS, parseLootRules } from './validate';
 import { FAQ_SEED } from './faqSeed';
 import { deleteNotesFor } from './playerNotes';
-import type { RelationInput, RelationPatch, RelationRef, AugmentInput, NpcInput, FaqInput, FaqPatch, MapPoiInput, MapPoiKind, MapPoiPatch, ChampionAbility, ChampionFieldsPatch, HistoryKind, ItemUpdate, LootRules, LootRulesPatch, PartyPatch, PlayerPatch, PlayerReplace, PlayerSheet, RolePatch, RollRecord, ShopOrder, TicketInput, TicketStatus } from './validate';
+import type { RelationInput, RelationPatch, RelationRef, AugmentInput, NpcInput, FaqInput, FaqPatch, MapPoiInput, MapPoiKind, MapPoiPatch, ChampionAbility, ChampionFieldsPatch, CombatState, HistoryKind, ItemUpdate, LootRules, LootRulesPatch, PartyPatch, PlayerPatch, PlayerReplace, PlayerSheet, RolePatch, RollRecord, ShopOrder, TicketInput, TicketStatus } from './validate';
 
 const PUBLIC = { projection: { _id: 0, order: 0 } };
 const CI = { locale: 'es', strength: 2 } as const;
@@ -113,11 +113,23 @@ export async function updateItem(nombre: string, update: ItemUpdate) {
     set.stats = update.stats;
   }
   if (typeof update.coste === 'number') set.coste = update.coste;
+  if (typeof update.hasStacks === 'boolean') set.hasStacks = update.hasStacks;
+  const unset: Record<string, ''> = {};
+  if (update.coste === null) unset.coste = '';
+  if (update.hasStacks === false) {
+    unset.maxStacks = '';
+  } else if (update.maxStacks === null) {
+    unset.maxStacks = '';
+  } else if (typeof update.maxStacks === 'number') {
+    set.maxStacks = update.maxStacks;
+  }
+  if (update.cooldown === null) unset.cooldown = '';
+  else if (typeof update.cooldown === 'number') set.cooldown = update.cooldown;
+  if (update.effectDuration === null) unset.effectDuration = '';
+  else if (typeof update.effectDuration === 'number') set.effectDuration = update.effectDuration;
 
-  await col.updateOne(
-    { _id: existing._id },
-    update.coste === null ? { $set: set, $unset: { coste: '' } } : { $set: set },
-  );
+  const updateDoc: Document = Object.keys(unset).length ? { $set: set, $unset: unset } : { $set: set };
+  await col.updateOne({ _id: existing._id }, updateDoc);
   return getItems(String(existing.nombre));
 }
 
@@ -233,30 +245,28 @@ function isBoots(rareza: unknown): boolean {
   return rarityKey(rareza) === 'botas';
 }
 
-/** Tarifa fija según la rareza del resultado. La misma tabla está en src/features/items/recipe.ts. */
-function rarityCraftGold(rareza: unknown): number {
-  const key = rarityKey(rareza);
-  if (key === 'epico') return 400;
-  if (key === 'legendario') return 800;
-  return 0;
+/** Tasa de crafteo: 10% del precio (Math.round). Misma regla en web recipe.ts. */
+const CRAFT_FEE_RATE = 0.1;
+
+function craftPercentFee(coste: number): number {
+  if (!Number.isFinite(coste) || coste <= 0) return 0;
+  return Math.round(coste * CRAFT_FEE_RATE);
 }
 
-/** Pico, Espadón y las dos varas: las piezas valen más y solo se cobran 200. La misma cifra está en src/features/items/recipe.ts. */
-const SURPLUS_CRAFT_GOLD = 200;
-
 /**
- * Oro del crafteo, sin la tarifa de rareza.
- * Si el resultado vale más que las piezas, se cobra la diferencia.
- * Si una sola pieza vale más, el coste guardado ya es el restante.
- * Si varias piezas valen más, no se devuelve la diferencia: se cobran 200.
- * La misma cuenta está en src/features/items/recipe.ts.
+ * Diferencia del paso: max(0, precio − suma hijos).
+ * Si los componentes suman más, se clampa a 0 (solo se cobra el 10%).
+ * Misma cuenta en web recipe.ts.
  */
-function craftGold(resultCost: number, pieceCosts: number[]): number {
+function craftDifference(resultCost: number, pieceCosts: number[]): number {
   const covered = pieceCosts.reduce((sum, cost) => sum + cost, 0);
   const restante = resultCost - covered;
-  if (restante >= 0) return restante;
-  if (pieceCosts.length === 1) return resultCost;
-  return SURPLUS_CRAFT_GOLD;
+  return restante > 0 ? restante : 0;
+}
+
+/** Oro de un crafteo suelto / de un paso: diferencia + 10%. */
+function craftGold(resultCost: number, pieceCosts: number[]): number {
+  return craftDifference(resultCost, pieceCosts) + craftPercentFee(resultCost);
 }
 
 async function chargeGold(amount: number, updatedAt: string): Promise<void> {
@@ -333,7 +343,7 @@ export async function craftItem(nombre: string) {
     const cost = numericCost(byKey.get(step.key)?.coste);
     for (let index = 0; index < step.needed; index += 1) pieceCosts.push(cost);
   }
-  const gold = craftGold(numericCost(target.coste), pieceCosts) + rarityCraftGold(target.rareza);
+  const gold = craftGold(numericCost(target.coste), pieceCosts);
   if (gold <= 0) throw new HttpError(400, 'Este crafteo tiene que costar oro');
 
   const applied: { id: ItemId; amount: number }[] = [];
@@ -391,6 +401,350 @@ export async function craftItem(nombre: string) {
     gold: await readPartyGold(),
   };
 }
+
+/** Coste de un paso del plan recursivo. Misma regla que web craftStepCost. */
+function planStepGold(resultCost: number, pieceCosts: number[], _rareza?: unknown, _role?: 'final' | 'intermediate'): {
+  difference: number;
+  fee: number;
+  gold: number;
+} {
+  const difference = craftDifference(resultCost, pieceCosts);
+  const fee = craftPercentFee(resultCost);
+  return { difference, fee, gold: difference + fee };
+}
+
+function isShopPurchasableDoc(doc: unknown): boolean {
+  if (!doc || typeof doc !== 'object') return false;
+  const rec = doc as { coste?: unknown; rareza?: unknown };
+  if (numericCost(rec.coste) <= 0) return false;
+  if (isPrismatic(rec.rareza) || isStarter(rec.rareza) || isBoots(rec.rareza)) return false;
+  return true;
+}
+
+export type CraftRecursiveOptions = {
+  /** Compra piezas básicas faltantes al precio de tienda y craftea. */
+  buyMissing?: boolean;
+  /** Solo calcula y valida; no muta oro ni stock. */
+  preview?: boolean;
+};
+
+/**
+ * Crafteo recursivo: prepara intermedios si hace falta y cobra el oro del plan de una vez.
+ * Con buyMissing: compra piezas básicas faltantes (misma regla que la tienda) y las usa en el craft.
+ * Con preview: devuelve el desglose sin cobrar ni mutar.
+ * Oro siempre recalculado en servidor.
+ */
+export async function craftRecursive(nombre: string, opts: CraftRecursiveOptions = {}) {
+  const buyMissing = opts.buyMissing === true;
+  const preview = opts.preview === true;
+  const trimmed = nombre.trim();
+  if (!trimmed) throw new HttpError(400, 'Falta el nombre del ítem');
+
+  const col = await collection('items');
+  const docs = await col.find({}).toArray();
+  type ItemId = (typeof docs)[number]['_id'];
+  const byKey = new Map<string, (typeof docs)[number]>();
+  for (const doc of docs) {
+    if (typeof doc.nombre !== 'string') continue;
+    const key = itemKey(doc.nombre);
+    if (!byKey.has(key)) byKey.set(key, doc);
+  }
+
+  const target = byKey.get(itemKey(trimmed));
+  if (!target || typeof target.nombre !== 'string') throw new HttpError(404, `No existe el item ${trimmed}`);
+  if (!Array.isArray(target.craftsFrom) || target.craftsFrom.length === 0) {
+    throw new HttpError(400, `${target.nombre} no se craftea`);
+  }
+
+  const equipped = await equippedCounts();
+  const bag = new Map<string, number>();
+  for (const doc of docs) {
+    if (typeof doc.nombre !== 'string') continue;
+    const key = itemKey(doc.nombre);
+    const available = Math.max(0, countOf(doc.cantidad) - (equipped.get(key) ?? 0));
+    if (available > 0) bag.set(key, available);
+  }
+
+  type PlannedStep = {
+    target: (typeof docs)[number];
+    role: 'final' | 'intermediate';
+    needs: { key: string; nombre: string; id: ItemId; needed: number }[];
+    gold: number;
+    difference: number;
+    fee: number;
+  };
+
+  type PurchaseLine = {
+    key: string;
+    nombre: string;
+    id: ItemId;
+    qty: number;
+    unitCost: number;
+    totalCost: number;
+  };
+
+  const planned: PlannedStep[] = [];
+  const purchaseMap = new Map<string, PurchaseLine>();
+  let packageGold = 0;
+
+  const addPurchase = (doc: (typeof docs)[number], qty: number) => {
+    if (typeof doc.nombre !== 'string') throw new HttpError(400, 'Ítem sin nombre');
+    if (!isShopPurchasableDoc(doc)) {
+      throw new HttpError(400, `${doc.nombre} no se puede comprar`);
+    }
+    const key = itemKey(doc.nombre);
+    const unit = numericCost(doc.coste);
+    const prev = purchaseMap.get(key);
+    if (prev) {
+      prev.qty += qty;
+      prev.totalCost += unit * qty;
+    } else {
+      purchaseMap.set(key, {
+        key,
+        nombre: doc.nombre,
+        id: doc._id as ItemId,
+        qty,
+        unitCost: unit,
+        totalCost: unit * qty,
+      });
+    }
+    // Entra al almacén virtual para el resto del plan.
+    bag.set(key, (bag.get(key) ?? 0) + qty);
+  };
+
+  const craftOne = (doc: (typeof docs)[number], role: 'final' | 'intermediate', depth: number, seen: Set<string>) => {
+    if (depth > 8) throw new HttpError(400, 'Receta demasiado profunda');
+    if (typeof doc.nombre !== 'string') throw new HttpError(400, 'Ítem sin nombre');
+    const self = itemKey(doc.nombre);
+    if (seen.has(self)) throw new HttpError(400, `Ciclo en receta: ${doc.nombre}`);
+    const nextSeen = new Set(seen);
+    nextSeen.add(self);
+
+    const needs = groupNeeds(recipeNames(doc.craftsFrom));
+    const resolved: PlannedStep['needs'] = [];
+    const pieceCosts: number[] = [];
+
+    for (const need of needs) {
+      const child = byKey.get(need.key);
+      if (!child || typeof child.nombre !== 'string') {
+        throw new HttpError(400, `No existe el ingrediente ${need.label}`);
+      }
+      for (let unit = 0; unit < need.needed; unit += 1) {
+        satisfy(child, depth + 1, nextSeen);
+        pieceCosts.push(numericCost(child.coste));
+      }
+      resolved.push({
+        key: need.key,
+        nombre: child.nombre,
+        id: child._id as ItemId,
+        needed: need.needed,
+      });
+    }
+
+    const cost = planStepGold(numericCost(doc.coste), pieceCosts, doc.rareza, role);
+    packageGold += cost.gold;
+    planned.push({
+      target: doc,
+      role,
+      needs: resolved,
+      gold: cost.gold,
+      difference: cost.difference,
+      fee: cost.fee,
+    });
+    bag.set(self, (bag.get(self) ?? 0) + 1);
+  };
+
+  const satisfy = (doc: (typeof docs)[number], depth: number, seen: Set<string>) => {
+    if (typeof doc.nombre !== 'string') throw new HttpError(400, 'Ítem sin nombre');
+    const self = itemKey(doc.nombre);
+    const have = bag.get(self) ?? 0;
+    if (have >= 1) {
+      bag.set(self, have - 1);
+      return;
+    }
+    if (!Array.isArray(doc.craftsFrom) || doc.craftsFrom.length === 0) {
+      if (buyMissing) {
+        addPurchase(doc, 1);
+        const afterBuy = bag.get(self) ?? 0;
+        if (afterBuy < 1) throw new HttpError(400, `No se pudo comprar ${doc.nombre}`);
+        bag.set(self, afterBuy - 1);
+        return;
+      }
+      throw new HttpError(400, `Faltan ingredientes: ${doc.nombre} (0/1)`);
+    }
+    craftOne(doc, 'intermediate', depth, seen);
+    const after = bag.get(self) ?? 0;
+    if (after < 1) throw new HttpError(400, `No se pudo preparar ${doc.nombre}`);
+    bag.set(self, after - 1);
+  };
+
+  craftOne(target, 'final', 0, new Set());
+
+  const directBuyGold = isShopPurchasableDoc(target) ? numericCost(target.coste) : 0;
+  if (packageGold <= 0) throw new HttpError(400, 'Este crafteo tiene que costar oro');
+
+  const purchases = [...purchaseMap.values()];
+  const buyGold = purchases.reduce((sum, line) => sum + line.totalCost, 0);
+  if (purchases.length > 0 && !buyMissing) {
+    throw new HttpError(400, 'Faltan ingredientes');
+  }
+  const totalGold = packageGold + buyGold;
+  const cheaperDirect = directBuyGold > 0 && totalGold > directBuyGold;
+
+  if (preview) {
+    return {
+      preview: true as const,
+      item: String(target.nombre),
+      purchases: purchases.map(line => ({
+        nombre: line.nombre,
+        cantidad: line.qty,
+        unitCost: line.unitCost,
+        oro: line.totalCost,
+      })),
+      steps: planned.map(step => ({
+        item: String(step.target.nombre),
+        role: step.role,
+        diferencia: step.difference,
+        tasa: step.fee,
+        oro: step.gold,
+        ingredients: step.needs.map(need => ({ nombre: need.nombre, cantidad: need.needed })),
+      })),
+      buyGold,
+      craftGold: packageGold,
+      oro: totalGold,
+      directBuyGold,
+      cheaperDirect,
+      gold: await readPartyGold(),
+    };
+  }
+
+  const updatedAt = new Date().toISOString();
+  const touchedIds = new Set<ItemId>([target._id as ItemId]);
+  const consumed: { id: ItemId; amount: number }[] = [];
+  const produced: ItemId[] = [];
+  const boughtApplied: { id: ItemId; amount: number }[] = [];
+  let chargedGold = 0;
+  const historyIds: { kind: 'buy' | 'craft'; id: unknown }[] = [];
+
+  try {
+    await chargeGold(totalGold, updatedAt);
+    chargedGold = totalGold;
+
+    // 1) Comprar piezas faltantes (entran al almacén).
+    for (const line of purchases) {
+      touchedIds.add(line.id);
+      const result = await col.updateOne(
+        { _id: line.id },
+        { $inc: { cantidad: line.qty }, $set: { updatedAt } },
+      );
+      if (result.matchedCount !== 1) throw new HttpError(404, `No existe el item ${line.nombre}`);
+      boughtApplied.push({ id: line.id, amount: line.qty });
+
+      const buyHist = await (await collection('buyHistoric')).insertOne({
+        timestamp: rollTimestamp(),
+        createdAt: new Date(),
+        item: line.nombre,
+        cantidad: line.qty,
+        oro: line.totalCost,
+        via: 'craft',
+        reverted: false,
+      });
+      historyIds.push({ kind: 'buy', id: buyHist.insertedId });
+    }
+
+    // 2) Craftear en orden (consume también lo recién comprado).
+    for (const step of planned) {
+      for (const need of step.needs) {
+        touchedIds.add(need.id);
+        const reserved = equipped.get(need.key) ?? 0;
+        const result = await col.updateOne(
+          { _id: need.id, cantidad: { $gte: reserved + need.needed } },
+          { $inc: { cantidad: -need.needed }, $set: { updatedAt } },
+        );
+        if (result.modifiedCount !== 1) {
+          throw new HttpError(409, 'El stock cambió mientras se crafteaba. Vuelve a intentarlo');
+        }
+        consumed.push({ id: need.id, amount: need.needed });
+      }
+      touchedIds.add(step.target._id as ItemId);
+      const created = await col.updateOne(
+        { _id: step.target._id },
+        { $inc: { cantidad: 1 }, $set: { updatedAt } },
+      );
+      if (created.matchedCount !== 1) throw new HttpError(404, `No existe el item ${String(step.target.nombre)}`);
+      produced.push(step.target._id as ItemId);
+    }
+
+    const leafIngredients = new Map<string, { nombre: string; cantidad: number }>();
+    for (const step of planned) {
+      for (const need of step.needs) {
+        const childPlanned = planned.some(p => itemKey(String(p.target.nombre)) === need.key);
+        if (childPlanned) continue;
+        const prev = leafIngredients.get(need.key);
+        if (prev) prev.cantidad += need.needed;
+        else leafIngredients.set(need.key, { nombre: need.nombre, cantidad: need.needed });
+      }
+    }
+
+    const craftHist = await (await collection('craftHistoric')).insertOne({
+      timestamp: rollTimestamp(),
+      createdAt: new Date(),
+      item: String(target.nombre),
+      ingredients: [...leafIngredients.values()],
+      oro: totalGold,
+      craftGold: packageGold,
+      buyGold,
+      purchases: purchases.map(line => ({ nombre: line.nombre, cantidad: line.qty, oro: line.totalCost })),
+      recursive: true,
+      buyMissing: purchases.length > 0,
+      steps: planned.map(step => ({
+        item: String(step.target.nombre),
+        role: step.role,
+        oro: step.gold,
+        ingredients: step.needs.map(need => ({ nombre: need.nombre, cantidad: need.needed })),
+      })),
+      reverted: false,
+    });
+    historyIds.push({ kind: 'craft', id: craftHist.insertedId });
+  } catch (error) {
+    try {
+      for (const id of produced.reverse()) {
+        await col.updateOne({ _id: id }, { $inc: { cantidad: -1 } });
+      }
+      for (const entry of consumed.reverse()) {
+        await col.updateOne({ _id: entry.id }, { $inc: { cantidad: entry.amount } });
+      }
+      for (const entry of boughtApplied.reverse()) {
+        await col.updateOne({ _id: entry.id }, { $inc: { cantidad: -entry.amount } });
+      }
+      for (const hist of historyIds.reverse()) {
+        const name = hist.kind === 'buy' ? 'buyHistoric' : 'craftHistoric';
+        await (await collection(name)).deleteOne({ _id: hist.id as never });
+      }
+      if (chargedGold > 0) await refundGold(chargedGold);
+    } catch (rollbackError) {
+      logError(rollbackError);
+    }
+    throw error;
+  }
+
+  return {
+    items: await col.find({ _id: { $in: [...touchedIds] } }, PUBLIC).toArray(),
+    gold: await readPartyGold(),
+    oro: totalGold,
+    buyGold,
+    craftGold: packageGold,
+    purchases: purchases.map(line => ({
+      nombre: line.nombre,
+      cantidad: line.qty,
+      oro: line.totalCost,
+    })),
+    cheaperDirect,
+    directBuyGold,
+  };
+}
+
+
 
 /** Compra al coste o vende al 70%. Lo equipado no se puede vender. */
 export async function tradeShop(order: ShopOrder) {
@@ -862,6 +1216,8 @@ export async function updatePlayer(name: string, patch: PlayerPatch) {
   if (patch.mana !== undefined) $set.mana = patch.mana;
   if (patch.actualMana !== undefined) $set.actualMana = patch.actualMana;
   if (patch.inspiration !== undefined) $set.inspiration = patch.inspiration;
+  if (patch.accentColor === null) $unset.accentColor = '';
+  else if (patch.accentColor) $set.accentColor = patch.accentColor;
   if (patch.shortRestsUsed !== undefined) $set.shortRestsUsed = patch.shortRestsUsed;
   if (patch.unlocks) {
     const current = existing.unlocks && typeof existing.unlocks === 'object' ? existing.unlocks : {};
@@ -882,6 +1238,24 @@ export async function updatePlayer(name: string, patch: PlayerPatch) {
     const next = await nextAbilityRanks(existing, patch.abilityRanks);
     $set.abilityRanks = next.ranks;
     $set.unassignedPoints = next.unassignedPoints;
+  }
+  if (patch.stacks) {
+    const current = existing.stacks && typeof existing.stacks === 'object' && !Array.isArray(existing.stacks)
+      ? existing.stacks as Record<string, number>
+      : {};
+    $set.stacks = { ...current, ...patch.stacks };
+  }
+  if (patch.cooldowns) {
+    const current = existing.cooldowns && typeof existing.cooldowns === 'object' && !Array.isArray(existing.cooldowns)
+      ? existing.cooldowns as Record<string, number>
+      : {};
+    $set.cooldowns = { ...current, ...patch.cooldowns };
+  }
+  if (patch.activeEffects) {
+    const current = existing.activeEffects && typeof existing.activeEffects === 'object' && !Array.isArray(existing.activeEffects)
+      ? existing.activeEffects as Record<string, number>
+      : {};
+    $set.activeEffects = { ...current, ...patch.activeEffects };
   }
 
   await col.updateOne(
@@ -1573,6 +1947,7 @@ function toNpc(doc: Document): NpcEntry {
     imageFrameCircle: toNpcFrame(doc.imageFrameCircle),
     background: typeof doc.background === 'string' && doc.background ? doc.background : null,
     description: text(doc.description),
+    publicNotes: text(doc.publicNotes),
     stats: doc.stats && typeof doc.stats === 'object' && !Array.isArray(doc.stats) ? doc.stats as NpcInput['stats'] : {},
     abilities: Array.isArray(doc.abilities) ? doc.abilities as NpcInput['abilities'] : [],
     visible: doc.visible === true,
@@ -1783,4 +2158,78 @@ export async function deleteRelation(id: string): Promise<{ id: string }> {
   const result = await (await collection('relations')).deleteOne({ _id: new ObjectId(id) });
   if (result.deletedCount === 0) throw new HttpError(404, MISSING_RELATION);
   return { id };
+}
+
+// ── Combate (tracker singleton) ──
+
+const COMBAT_DOC_ID = 'active';
+
+const EMPTY_COMBAT: CombatState = {
+  active: false,
+  round: 1,
+  turnIndex: 0,
+  participants: [],
+};
+
+function toCombat(doc: Document | null): CombatState & { updatedAt?: string } {
+  if (!doc) return { ...EMPTY_COMBAT };
+  const participants = Array.isArray(doc.participants) ? doc.participants : [];
+  return {
+    active: doc.active === true,
+    round: typeof doc.round === 'number' && doc.round >= 1 ? Math.trunc(doc.round) : 1,
+    turnIndex: typeof doc.turnIndex === 'number' && doc.turnIndex >= 0 ? Math.trunc(doc.turnIndex) : 0,
+    participants: participants as CombatState['participants'],
+    updatedAt: typeof doc.updatedAt === 'string' ? doc.updatedAt : undefined,
+  };
+}
+
+export async function getCombat(): Promise<CombatState & { updatedAt?: string }> {
+  const doc = await (await singleton('combat')).findOne({ _id: COMBAT_DOC_ID });
+  return toCombat(doc);
+}
+
+export async function replaceCombat(state: CombatState): Promise<CombatState & { updatedAt?: string }> {
+  const updatedAt = new Date().toISOString();
+  await (await singleton('combat')).updateOne(
+    { _id: COMBAT_DOC_ID },
+    {
+      $set: {
+        active: state.active,
+        round: state.round,
+        turnIndex: state.turnIndex,
+        participants: state.participants,
+        updatedAt,
+      },
+    },
+    { upsert: true },
+  );
+  return { ...state, updatedAt };
+}
+
+/**
+ * Termina el combate: vacía el tracker (Preparación) y limpia cooldowns/activeEffects
+ * de los players que participaban. No toca stacks ni PG.
+ */
+export async function endCombatAndResetTrackers(): Promise<CombatState & { updatedAt?: string }> {
+  const current = await getCombat();
+  const names = new Set<string>();
+  for (const participant of current.participants) {
+    if (participant.kind !== 'player') continue;
+    const name = (participant.sourceId ?? participant.name ?? '').trim();
+    if (name) names.add(name);
+  }
+
+  if (names.size > 0) {
+    const col = await players();
+    const updatedAt = new Date().toISOString();
+    for (const name of names) {
+      await col.updateOne(
+        { name },
+        { $set: { cooldowns: {}, activeEffects: {}, updatedAt } },
+        { collation: CI },
+      );
+    }
+  }
+
+  return replaceCombat({ ...EMPTY_COMBAT });
 }
