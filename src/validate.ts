@@ -791,7 +791,31 @@ export type ChampionAbility = {
   effectName?: string;
   /** Recurso que gasta. Ausente = el del campeón. */
   resource?: ResourceId;
+  /** Fases 2, 3… (la base es la fase 1). Los campos ausentes heredan de la base. */
+  variants?: ChampionAbilityVariant[];
+  /** sequential (por defecto) = Usar avanza de fase; choose = se elige la fase al usar (combos de Hwei). */
+  phaseMode?: 'sequential' | 'choose';
 };
+
+/** Fase alternativa de una habilidad (Q de Aatrox, Riven, básicas de Hwei…). */
+export type ChampionAbilityVariant = {
+  /** Nombre de la fase. Ausente = «Fase N». */
+  name?: string;
+  description?: string;
+  cost?: string;
+  resource?: ResourceId;
+  /** Campos de daño que cambian; los ausentes heredan de la base. */
+  damage?: ChampionAbilityDamage;
+  /** Si está, sustituye la lista de efectos de la base. */
+  effect?: ChampionAbilityEffect[];
+  cooldown?: number;
+  effectDuration?: number;
+  /** Aquí self se guarda explícito para poder sobrescribir una base enemy. */
+  effectTarget?: 'self' | 'enemy';
+  effectName?: string;
+};
+
+const ABILITY_MAX_VARIANTS = 12;
 
 export type ChampionAbilityPatch = {
   slot: ChampionSlot;
@@ -932,7 +956,74 @@ export function parseChampionAbilityPatch(body: unknown): ChampionAbilityPatch {
     }
     ability.resource = abilitySource.resource;
   }
+  if ('variants' in abilitySource && abilitySource.variants !== undefined && abilitySource.variants !== null) {
+    const variants = parseAbilityVariants(abilitySource.variants);
+    if (variants) ability.variants = variants;
+  }
+  if ('phaseMode' in abilitySource && abilitySource.phaseMode !== undefined && abilitySource.phaseMode !== null) {
+    if (abilitySource.phaseMode !== 'sequential' && abilitySource.phaseMode !== 'choose') {
+      throw new HttpError(400, 'phaseMode tiene que ser sequential o choose');
+    }
+    if (abilitySource.phaseMode === 'choose') ability.phaseMode = 'choose';
+  }
   return { slot: source.slot as ChampionSlot, ability };
+}
+
+function optionalTurns(source: Record<string, unknown>, key: string, field: string): number | undefined {
+  const value = source[key];
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 1 || value > 999) {
+    throw new HttpError(400, `${field} tiene que ser un entero entre 1 y 999`);
+  }
+  return value;
+}
+
+function parseAbilityVariants(value: unknown): ChampionAbilityVariant[] | undefined {
+  if (!Array.isArray(value)) throw new HttpError(400, 'variants tiene que ser una lista');
+  if (value.length > ABILITY_MAX_VARIANTS) {
+    throw new HttpError(400, `Como máximo ${ABILITY_MAX_VARIANTS} variantes por habilidad`);
+  }
+  const variants: ChampionAbilityVariant[] = [];
+  value.forEach((item, index) => {
+    const label = `variants[${index}]`;
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      throw new HttpError(400, `${label} tiene que ser un objeto`);
+    }
+    const source = item as Record<string, unknown>;
+    const variant: ChampionAbilityVariant = {};
+    const name = boundedText(source.name, `${label}.name`, 80);
+    if (name) variant.name = name;
+    const description = optionalText(source.description, `${label}.description`);
+    if (description) variant.description = description;
+    const cost = optionalText(source.cost, `${label}.cost`);
+    if (cost) variant.cost = cost;
+    if (source.resource !== undefined && source.resource !== null && source.resource !== '') {
+      if (!isResourceId(source.resource)) throw new HttpError(400, `${label}.resource no es un recurso válido`);
+      variant.resource = source.resource;
+    }
+    if (source.damage !== undefined && source.damage !== null) {
+      const damage = parseDamage(source.damage);
+      if (damage) variant.damage = damage;
+    }
+    if (source.effect !== undefined && source.effect !== null) {
+      const effect = parseEffects(source.effect);
+      if (effect) variant.effect = effect;
+    }
+    const cooldown = optionalTurns(source, 'cooldown', `${label}.cooldown`);
+    if (cooldown !== undefined) variant.cooldown = cooldown;
+    const effectDuration = optionalTurns(source, 'effectDuration', `${label}.effectDuration`);
+    if (effectDuration !== undefined) variant.effectDuration = effectDuration;
+    if (source.effectTarget !== undefined && source.effectTarget !== null && source.effectTarget !== '') {
+      if (source.effectTarget !== 'self' && source.effectTarget !== 'enemy') {
+        throw new HttpError(400, `${label}.effectTarget tiene que ser self o enemy`);
+      }
+      variant.effectTarget = source.effectTarget;
+    }
+    const effectName = boundedText(source.effectName, `${label}.effectName`, 80);
+    if (effectName) variant.effectName = effectName;
+    variants.push(variant);
+  });
+  return variants.length ? variants : undefined;
 }
 
 export type ChampionFieldsPatch = {
@@ -2011,6 +2102,8 @@ export type CombatParticipant = {
   currentResource?: number;
   cooldowns?: Record<string, number>;
   activeEffects?: Record<string, number>;
+  /** Fase actual (0 = base) de habilidades con variantes. Claves ability:<nombre>. */
+  abilityPhases?: Record<string, number>;
 };
 
 export type CombatState = {
@@ -2126,7 +2219,30 @@ function combatParticipant(value: unknown): CombatParticipant {
   if (source.activeEffects !== undefined && source.activeEffects !== null) {
     participant.activeEffects = parsePlayerActiveEffects(source.activeEffects);
   }
+  if (source.abilityPhases !== undefined && source.abilityPhases !== null) {
+    participant.abilityPhases = parseAbilityPhases(source.abilityPhases);
+  }
   return participant;
+}
+
+function parseAbilityPhases(value: unknown): Record<string, number> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new HttpError(400, 'abilityPhases tiene que ser un objeto');
+  }
+  const entries = Object.entries(value as Record<string, unknown>);
+  if (entries.length > 40) throw new HttpError(400, 'Como máximo 40 fases de habilidad');
+  const out: Record<string, number> = {};
+  for (const [rawKey, rawVal] of entries) {
+    const key = rawKey.trim();
+    if (!key || key.length > 120 || key.includes('.') || key.startsWith('$') || !key.startsWith('ability:')) {
+      throw new HttpError(400, `Clave de fase no válida: ${rawKey}`);
+    }
+    if (typeof rawVal !== 'number' || !Number.isInteger(rawVal) || rawVal < 0 || rawVal > ABILITY_MAX_VARIANTS) {
+      throw new HttpError(400, `abilityPhases[${key}] tiene que ser un entero entre 0 y ${ABILITY_MAX_VARIANTS}`);
+    }
+    out[key] = rawVal;
+  }
+  return out;
 }
 
 export function parseCombatState(body: unknown): CombatState {
