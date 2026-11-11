@@ -41,6 +41,15 @@ function row(
     magicPen: 0,
     armorPenPct: 0,
     magicPenPct: 0,
+    // Solo las dan los ítems: 0 en todos los roles y niveles.
+    healShieldPct: 0,
+    tenacityPct: 0,
+    slowResistPct: 0,
+    lifeStealPct: 0,
+    omnivampPct: 0,
+    range: 0,
+    healthRegen: 0,
+    manaRegen: 0,
   };
 }
 

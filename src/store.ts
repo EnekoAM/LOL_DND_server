@@ -136,6 +136,12 @@ export async function updateItem(nombre: string, update: ItemUpdate) {
   else if (update.effectTarget === 'enemy') set.effectTarget = 'enemy';
   if (update.effectName === null) unset.effectName = '';
   else if (typeof update.effectName === 'string') set.effectName = update.effectName;
+  if (update.passiveBonus === null) unset.passiveBonus = '';
+  else if (update.passiveBonus) set.passiveBonus = update.passiveBonus;
+  if (update.passiveDamage === null) unset.passiveDamage = '';
+  else if (update.passiveDamage) set.passiveDamage = update.passiveDamage;
+  if (update.namedEffects === null || (Array.isArray(update.namedEffects) && update.namedEffects.length === 0)) unset.namedEffects = '';
+  else if (Array.isArray(update.namedEffects)) set.namedEffects = update.namedEffects;
 
   const updateDoc: Document = Object.keys(unset).length ? { $set: set, $unset: unset } : { $set: set };
   await col.updateOne({ _id: existing._id }, updateDoc);
@@ -1706,7 +1712,7 @@ export async function deleteAugment(id: string): Promise<{ id: string }> {
 export async function mongoStatus() {
   const db = await getDb();
   await db.command({ ping: 1 });
-  const names = ['champions', 'items', 'players', 'roles', 'loot', 'party', 'rollHistoric', 'craftHistoric', 'buyHistoric', 'sellHistoric', 'tickets', 'augments', 'mapPois', 'faq', 'npcs', 'relations', 'events'] as const;
+  const names = ['champions', 'items', 'players', 'roles', 'loot', 'party', 'rollHistoric', 'craftHistoric', 'buyHistoric', 'sellHistoric', 'tickets', 'augments', 'mapPois', 'faq', 'npcs', 'relations', 'events', 'namedEffectDescriptions'] as const;
   const counts = Object.fromEntries(
     await Promise.all(names.map(async name => [name, await db.collection(name).estimatedDocumentCount()] as const)),
   );

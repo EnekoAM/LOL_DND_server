@@ -12,6 +12,7 @@ import items from './api/items';
 import liveToken from './api/live-token';
 import loot from './api/loot';
 import mapPois from './api/map-pois';
+import namedEffects from './api/named-effects';
 import npcs from './api/npcs';
 import party from './api/party';
 import playerNotes from './api/player-notes';
@@ -147,6 +148,9 @@ app.post('/api/events', adapt(events));
 app.patch('/api/events', adapt(events));
 app.put('/api/events', adapt(events));
 app.delete('/api/events', adapt(events));
+// Descripciones de los efectos con nombre: leer cualquiera; editar solo admin.
+app.get('/api/named-effects', adapt(namedEffects));
+app.patch('/api/named-effects', adapt(namedEffects));
 app.get('/api/loot', adapt(loot));
 app.patch('/api/loot', adapt(loot));
 app.get('/api/party', adapt(party));

@@ -493,10 +493,18 @@ export const SHEET_STAT_KEYS = [
   'magicPen',
   'armorPenPct',
   'magicPenPct',
+  'healShieldPct',
+  'tenacityPct',
+  'slowResistPct',
+  'lifeStealPct',
+  'omnivampPct',
+  'range',
+  'healthRegen',
+  'manaRegen',
 ] as const;
 
 /** Stats añadidas después: las tablas de rol antiguas no las traen y valen 0. */
-const OPTIONAL_ROLE_STAT_KEYS: readonly SheetStatKey[] = ['armorPenPct', 'magicPenPct'];
+const OPTIONAL_ROLE_STAT_KEYS: readonly SheetStatKey[] = ['armorPenPct', 'magicPenPct', 'healShieldPct', 'tenacityPct', 'slowResistPct', 'lifeStealPct', 'omnivampPct', 'range', 'healthRegen', 'manaRegen'];
 
 export type SheetStatKey = (typeof SHEET_STAT_KEYS)[number];
 
@@ -1146,6 +1154,100 @@ export function parseChampionFieldsPatch(body: unknown): ChampionFieldsPatch {
   return patch;
 }
 
+/** Cuándo salta la pasiva de un ítem en combate. */
+export const PASSIVE_TRIGGERS = ['on-hit', 'on-ability', 'on-use'] as const;
+export type PassiveTrigger = (typeof PASSIVE_TRIGGERS)[number];
+
+/** Bonus temporal que da la pasiva (p. ej. +0,3 letalidad por stack). */
+export type ItemPassiveBonus = {
+  trigger: PassiveTrigger;
+  stat: SheetStatKey;
+  amount: number;
+  maxStacks?: number;
+  durationTurns?: number;
+};
+
+/** Daño de la pasiva: % de la vida actual del objetivo. */
+export type ItemPassiveDamage = {
+  trigger: PassiveTrigger;
+  currentHpPct: number;
+};
+
+function passiveTrigger(value: unknown, field: string): PassiveTrigger {
+  if (typeof value === 'string' && (PASSIVE_TRIGGERS as readonly string[]).includes(value)) return value as PassiveTrigger;
+  throw new HttpError(400, `${field} tiene que ser ${PASSIVE_TRIGGERS.join(', ')}`);
+}
+
+export function bonusStat(value: unknown, field: string): SheetStatKey {
+  if (typeof value === 'string' && (SHEET_STAT_KEYS as readonly string[]).includes(value)) return value as SheetStatKey;
+  throw new HttpError(400, `${field} no es una stat válida`);
+}
+
+/**
+ * Bonus de combate: una stat de la ficha, o un marcador de los efectos con nombre
+ * («armed» = siguiente AA potenciado, «cooldown» = efecto en enfriamiento); los marcadores no suman stats.
+ */
+export const COMBAT_MARKER_STATS = ['armed', 'cooldown'] as const;
+function combatBonusStat(value: unknown, field: string): SheetStatKey | (typeof COMBAT_MARKER_STATS)[number] {
+  if (typeof value === 'string' && (COMBAT_MARKER_STATS as readonly string[]).includes(value)) return value as (typeof COMBAT_MARKER_STATS)[number];
+  return bonusStat(value, field);
+}
+
+function bonusAmount(value: unknown, field: string): number {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value === 0 || Math.abs(value) > 9999) {
+    throw new HttpError(400, `${field} tiene que ser un número distinto de 0 (máx. 9999)`);
+  }
+  return value;
+}
+
+function optionalCount(value: unknown, field: string, min: number, max: number): number | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < min || value > max) {
+    throw new HttpError(400, `${field} tiene que ser un entero entre ${min} y ${max}`);
+  }
+  return value;
+}
+
+function itemPassiveBonus(value: unknown): ItemPassiveBonus {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new HttpError(400, 'passiveBonus tiene que ser un objeto');
+  const source = value as Record<string, unknown>;
+  const bonus: ItemPassiveBonus = {
+    trigger: passiveTrigger(source.trigger, 'passiveBonus.trigger'),
+    stat: bonusStat(source.stat, 'passiveBonus.stat'),
+    amount: bonusAmount(source.amount, 'passiveBonus.amount'),
+  };
+  const maxStacks = optionalCount(source.maxStacks, 'passiveBonus.maxStacks', 1, 99);
+  if (maxStacks !== undefined) bonus.maxStacks = maxStacks;
+  const durationTurns = optionalCount(source.durationTurns, 'passiveBonus.durationTurns', 1, 99);
+  if (durationTurns !== undefined) bonus.durationTurns = durationTurns;
+  return bonus;
+}
+
+function itemPassiveDamage(value: unknown): ItemPassiveDamage {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new HttpError(400, 'passiveDamage tiene que ser un objeto');
+  const source = value as Record<string, unknown>;
+  const pct = source.currentHpPct;
+  if (typeof pct !== 'number' || !Number.isFinite(pct) || pct <= 0 || pct > 100) {
+    throw new HttpError(400, 'passiveDamage.currentHpPct tiene que ser un número entre 0 y 100');
+  }
+  return { trigger: passiveTrigger(source.trigger, 'passiveDamage.trigger'), currentHpPct: pct };
+}
+
+/** Id de efecto (`spellblade`) o de variante (`spellblade:magic`). */
+const NAMED_EFFECT_ID = /^[a-z0-9-]{1,60}(:[a-z0-9-]{1,30})?$/;
+const ITEM_MAX_NAMED_EFFECTS = 10;
+
+function itemNamedEffects(value: unknown): string[] {
+  if (!Array.isArray(value)) throw new HttpError(400, 'namedEffects tiene que ser una lista');
+  const ids: string[] = [];
+  for (const entry of value) {
+    if (typeof entry !== 'string' || !NAMED_EFFECT_ID.test(entry)) throw new HttpError(400, `Efecto con nombre no válido: ${String(entry)}`);
+    if (!ids.includes(entry)) ids.push(entry);
+  }
+  if (ids.length > ITEM_MAX_NAMED_EFFECTS) throw new HttpError(400, `Máximo ${ITEM_MAX_NAMED_EFFECTS} efectos con nombre por ítem`);
+  return ids;
+}
+
 export type ItemUpdate = {
   rareza: string;
   efecto: { pasiva: string; activa: string };
@@ -1164,6 +1266,12 @@ export type ItemUpdate = {
   effectTarget?: 'self' | 'enemy' | null;
   /** Nombre del estado en combate (null lo quita). */
   effectName?: string | null;
+  /** Bonus de stats de la pasiva en combate (null lo quita). */
+  passiveBonus?: ItemPassiveBonus | null;
+  /** Daño de la pasiva (% vida actual del objetivo; null lo quita). */
+  passiveDamage?: ItemPassiveDamage | null;
+  /** Efectos con nombre (Vigor, Salvavidas…; ids de namedEffects.ts). [] / null los quita. */
+  namedEffects?: string[] | null;
 };
 
 const ITEM_TEXT_LIMIT = 2000;
@@ -1274,6 +1382,9 @@ export function parseItemUpdate(body: unknown): ItemUpdate {
       update.effectName = effectName || null;
     }
   }
+  if ('passiveBonus' in source) update.passiveBonus = source.passiveBonus === null ? null : itemPassiveBonus(source.passiveBonus);
+  if ('passiveDamage' in source) update.passiveDamage = source.passiveDamage === null ? null : itemPassiveDamage(source.passiveDamage);
+  if ('namedEffects' in source) update.namedEffects = source.namedEffects === null ? null : itemNamedEffects(source.namedEffects);
   return update;
 }
 
@@ -2104,6 +2215,19 @@ export type CombatParticipant = {
   activeEffects?: Record<string, number>;
   /** Fase actual (0 = base) de habilidades con variantes. Claves ability:<nombre>. */
   abilityPhases?: Record<string, number>;
+  /** Copia propia de la ficha (campeón / NPC) para este participante. */
+  sheet?: CombatSheet;
+  /** Vida temporal y escudo (campeones / NPCs; los players los llevan en su ficha). */
+  tempHp?: number;
+  shield?: number;
+  /** Máximo del recurso fijado a mano (si no, el de sus stats / Recurso). */
+  resourceMax?: number;
+  /** Ataques / habilidades que le quedan este turno (ausente = todos). */
+  actionsLeft?: { attacks?: number; abilities?: number };
+  /** Ataques / habilidades extra de este turno (ya incluidos en actionsLeft). */
+  actionsExtra?: { attacks?: number; abilities?: number };
+  /** Bonus temporales de stats (manuales o de pasivas de ítems). */
+  bonuses?: CombatBonus[];
 };
 
 export type CombatState = {
@@ -2161,6 +2285,49 @@ function combatEffect(value: unknown): CombatEffect {
   return effect;
 }
 
+/** Bonus temporal de stats en combate: amount × stacks se suma al total; turns baja al empezar su turno. */
+export type CombatBonus = {
+  id: string;
+  /** Stat de la ficha o marcador de efecto con nombre (armed / cooldown). */
+  stat: SheetStatKey | 'armed' | 'cooldown';
+  amount: number;
+  stacks?: number;
+  maxStacks?: number;
+  turns?: number;
+  /** "manual" o "item:<nombre>". */
+  source?: string;
+  label?: string;
+};
+
+const COMBAT_MAX_BONUSES = 30;
+
+export function combatBonuses(value: unknown): CombatBonus[] {
+  if (!Array.isArray(value)) throw new HttpError(400, 'bonuses tiene que ser una lista');
+  if (value.length > COMBAT_MAX_BONUSES) throw new HttpError(400, `Máximo ${COMBAT_MAX_BONUSES} bonus por participante`);
+  return value.map((entry, index) => {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) throw new HttpError(400, `bonuses[${index}] tiene que ser un objeto`);
+    const source = entry as Record<string, unknown>;
+    const id = boundedText(source.id, `bonuses[${index}].id`, 64);
+    if (!id) throw new HttpError(400, `bonuses[${index}].id es obligatorio`);
+    const bonus: CombatBonus = {
+      id,
+      stat: combatBonusStat(source.stat, `bonuses[${index}].stat`),
+      amount: bonusAmount(source.amount, `bonuses[${index}].amount`),
+    };
+    const stacks = optionalCount(source.stacks, `bonuses[${index}].stacks`, 1, 99);
+    if (stacks !== undefined) bonus.stacks = stacks;
+    const maxStacks = optionalCount(source.maxStacks, `bonuses[${index}].maxStacks`, 1, 99);
+    if (maxStacks !== undefined) bonus.maxStacks = maxStacks;
+    const turns = optionalCount(source.turns, `bonuses[${index}].turns`, 1, 99);
+    if (turns !== undefined) bonus.turns = turns;
+    const origin = boundedText(source.source, `bonuses[${index}].source`, 80);
+    if (origin) bonus.source = origin;
+    const label = boundedText(source.label, `bonuses[${index}].label`, 80);
+    if (label) bonus.label = label;
+    return bonus;
+  });
+}
+
 function combatParticipant(value: unknown): CombatParticipant {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new HttpError(400, 'Cada participante tiene que ser un objeto');
@@ -2213,6 +2380,32 @@ function combatParticipant(value: unknown): CombatParticipant {
   if (source.currentResource !== undefined) {
     participant.currentResource = nonNegInt(source.currentResource, 'currentResource');
   }
+  if (source.tempHp !== undefined && source.tempHp !== null) participant.tempHp = nonNegInt(source.tempHp, 'tempHp');
+  if (source.shield !== undefined && source.shield !== null) participant.shield = nonNegInt(source.shield, 'shield');
+  if (source.resourceMax !== undefined && source.resourceMax !== null) {
+    participant.resourceMax = nonNegInt(source.resourceMax, 'resourceMax');
+  }
+  for (const field of ['actionsLeft', 'actionsExtra'] as const) {
+    const value = source[field];
+    if (value === undefined || value === null) continue;
+    if (typeof value !== 'object' || Array.isArray(value)) {
+      throw new HttpError(400, `${field} tiene que ser un objeto`);
+    }
+    const raw = value as Record<string, unknown>;
+    const actions: { attacks?: number; abilities?: number } = {};
+    for (const key of ['attacks', 'abilities'] as const) {
+      if (raw[key] === undefined || raw[key] === null) continue;
+      const n = nonNegInt(raw[key], `${field}.${key}`);
+      if (n > 99) throw new HttpError(400, `${field}.${key} no puede superar 99`);
+      if (field === 'actionsExtra' && n === 0) continue;
+      actions[key] = n;
+    }
+    if (Object.keys(actions).length) participant[field] = actions;
+  }
+  if (source.bonuses !== undefined && source.bonuses !== null) {
+    const bonuses = combatBonuses(source.bonuses);
+    if (bonuses.length) participant.bonuses = bonuses;
+  }
   if (source.cooldowns !== undefined && source.cooldowns !== null) {
     participant.cooldowns = parsePlayerCooldowns(source.cooldowns);
   }
@@ -2222,7 +2415,84 @@ function combatParticipant(value: unknown): CombatParticipant {
   if (source.abilityPhases !== undefined && source.abilityPhases !== null) {
     participant.abilityPhases = parseAbilityPhases(source.abilityPhases);
   }
+  if (source.sheet !== undefined && source.sheet !== null) {
+    if (participant.kind !== 'champion' && participant.kind !== 'npc') {
+      throw new HttpError(400, 'Solo campeones y NPCs llevan copia de ficha');
+    }
+    participant.sheet = parseCombatSheet(source.sheet);
+  }
   return participant;
+}
+
+/**
+ * Copia de la ficha de un campeón o NPC tomada al añadirlo al combate. Cada participante
+ * lee y escribe la suya; el documento base no se toca. Se valida forma y tamaño, no el contenido.
+ */
+export type CombatSheet = {
+  kind: 'champion' | 'npc';
+  capturedAt: string;
+  data: Record<string, unknown>;
+  /** Rango de cada habilidad (Q/W/E/R…) en este combate. */
+  abilityRanks?: Record<string, number>;
+};
+
+const COMBAT_SHEET_MAX_CHARS = 48_000;
+const COMBAT_SHEET_MAX_DEPTH = 12;
+
+function assertPlainJson(value: unknown, depth: number): void {
+  if (depth > COMBAT_SHEET_MAX_DEPTH) throw new HttpError(400, 'sheet demasiado anidada');
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') return;
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) throw new HttpError(400, 'sheet tiene números no válidos');
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const entry of value) assertPlainJson(entry, depth + 1);
+    return;
+  }
+  if (typeof value === 'object') {
+    for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+      if (!key || key.startsWith('$') || key.includes('\0')) throw new HttpError(400, `Clave no válida en sheet: ${key}`);
+      assertPlainJson(entry, depth + 1);
+    }
+    return;
+  }
+  throw new HttpError(400, 'sheet solo admite datos JSON');
+}
+
+function parseCombatSheet(value: unknown): CombatSheet {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new HttpError(400, 'sheet tiene que ser un objeto');
+  const source = value as Record<string, unknown>;
+  if (source.kind !== 'champion' && source.kind !== 'npc') throw new HttpError(400, 'sheet.kind tiene que ser champion o npc');
+  if (!source.data || typeof source.data !== 'object' || Array.isArray(source.data)) {
+    throw new HttpError(400, 'sheet.data tiene que ser un objeto');
+  }
+  assertPlainJson(source.data, 0);
+  if (JSON.stringify(source.data).length > COMBAT_SHEET_MAX_CHARS) {
+    throw new HttpError(400, `La copia de la ficha no puede superar ${COMBAT_SHEET_MAX_CHARS} caracteres`);
+  }
+  const sheet: CombatSheet = {
+    kind: source.kind,
+    capturedAt: typeof source.capturedAt === 'string' && source.capturedAt.length <= 40 ? source.capturedAt : new Date().toISOString(),
+    data: source.data as Record<string, unknown>,
+  };
+  if (source.abilityRanks !== undefined && source.abilityRanks !== null) {
+    if (typeof source.abilityRanks !== 'object' || Array.isArray(source.abilityRanks)) {
+      throw new HttpError(400, 'sheet.abilityRanks tiene que ser un objeto');
+    }
+    const ranks: Record<string, number> = {};
+    const entries = Object.entries(source.abilityRanks as Record<string, unknown>);
+    if (entries.length > 20) throw new HttpError(400, 'Demasiados rangos de habilidad');
+    for (const [key, raw] of entries) {
+      if (!/^[A-Za-z0-9_-]{1,20}$/.test(key)) throw new HttpError(400, `Clave de rango no válida: ${key}`);
+      if (typeof raw !== 'number' || !Number.isInteger(raw) || raw < 1 || raw > 20) {
+        throw new HttpError(400, `sheet.abilityRanks[${key}] tiene que ser un entero entre 1 y 20`);
+      }
+      ranks[key] = raw;
+    }
+    if (Object.keys(ranks).length) sheet.abilityRanks = ranks;
+  }
+  return sheet;
 }
 
 function parseAbilityPhases(value: unknown): Record<string, number> {
