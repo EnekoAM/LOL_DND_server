@@ -50,6 +50,8 @@ export type EffectRule = {
 
 export type EffectBonusConfig = {
   cooldown?: number;
+  /** CD por tramo de nivel del portador (1–5 / 6–10 / 11–15 / 16–20). */
+  cooldownByLevel?: number[];
   duration?: number;
   cdStart?: 'on-activate' | 'on-end';
   /** Vigor: las habilidades que golpean también descargan el Vigor al máximo (Espada ciclovoltaica). */
@@ -61,7 +63,7 @@ export type EffectBonusConfig = {
   /** Al usar: máximo de objetivos enemigos (1-20). */
   maxTargets?: number;
   /** Cargas de combate: empieza con start (0-max), máx. max (1-99), recarga 1 cada every turnos (1-99). */
-  charges?: { start: number; max: number; every: number };
+  charges?: { start: number; max: number; every: number; perTurn?: boolean };
   rules: EffectRule[];
 };
 
@@ -176,6 +178,11 @@ export function parseEffectBonusConfig(value: unknown): EffectBonusConfig {
   const config: EffectBonusConfig = { rules };
   const cooldown = optTurns(source.cooldown, 'bonus.cooldown');
   if (cooldown) config.cooldown = cooldown;
+  if (source.cooldownByLevel !== undefined && source.cooldownByLevel !== null) {
+    if (!Array.isArray(source.cooldownByLevel) || source.cooldownByLevel.length > 4) throw new HttpError(400, 'bonus.cooldownByLevel: hasta 4 valores (niveles 1–5 / 6–10 / 11–15 / 16–20)');
+    const list = source.cooldownByLevel.map((n, i) => optTurns(n, `bonus.cooldownByLevel[${i}]`)).filter((n): n is number => !!n);
+    if (list.length) config.cooldownByLevel = list;
+  }
   const duration = optTurns(source.duration, 'bonus.duration');
   if (duration) config.duration = duration;
   if (source.cdStart !== undefined && source.cdStart !== null) config.cdStart = oneOf(['on-activate', 'on-end'] as const, source.cdStart, 'bonus.cdStart');
@@ -205,6 +212,7 @@ export function parseEffectBonusConfig(value: unknown): EffectBonusConfig {
     const start = optNumber(c.start, 'bonus.charges.start', 0, 99);
     if (!max || !every || ![max, every, start ?? 0].every(Number.isInteger)) throw new HttpError(400, 'bonus.charges: max y every enteros 1-99, start entero 0-max');
     config.charges = { start: Math.min(start ?? max, max), max, every };
+    if (c.perTurn === true) config.charges.perTurn = true;
   }
   return config;
 }
