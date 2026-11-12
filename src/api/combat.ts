@@ -110,12 +110,12 @@ async function patchCombatHp(req: ApiRequest) {
 }
 
 /**
- * op actions: ataques / habilidades que le quedan este turno (left) y cuántas son extra.
+ * op actions: ataques / habilidades / usos de objeto que le quedan este turno (left) y cuántas son extra.
  * Admin: de cualquiera. User: solo su propio player. Se guarda en el participante del combate.
  */
 async function patchCombatActions(req: ApiRequest, body: Record<string, unknown>) {
   const kind = body.kind;
-  if (kind !== 'attacks' && kind !== 'abilities') throw new HttpError(400, 'kind tiene que ser attacks o abilities');
+  if (kind !== 'attacks' && kind !== 'abilities' && kind !== 'items') throw new HttpError(400, 'kind tiene que ser attacks, abilities o items');
   const count = (value: unknown, field: string): number => {
     if (typeof value !== 'number' || !Number.isInteger(value) || value < 0 || value > 99) {
       throw new HttpError(400, `${field} tiene que ser un entero entre 0 y 99`);

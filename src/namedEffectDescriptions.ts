@@ -1,4 +1,5 @@
 import { HttpError } from './errors';
+import { parseAreaPattern, type AreaPattern } from './areaPattern';
 import { getDb } from './db';
 import { SHEET_STAT_KEYS } from './validate';
 
@@ -11,12 +12,12 @@ import { SHEET_STAT_KEYS } from './validate';
  * - bonus: configurador de bonus (reglas en combate, CD, duración). En una variante, si no está, usa la del base.
  * Sin descripción, sin onHit y sin bonus = se borra el documento.
  */
-type DescriptionDoc = { _id: string; description?: string; onHit?: boolean; bonus?: EffectBonusConfig; updatedAt: string };
+type DescriptionDoc = { _id: string; description?: string; onHit?: boolean; bonus?: EffectBonusConfig; area?: AreaPattern; updatedAt: string };
 
 // ── Configurador de bonus (mismo modelo que web/src/data/effectBonus.ts) ──
-const TRIGGERS = ['always', 'on-hit', 'after-ability', 'on-ability-hit', 'on-use', 'on-takedown', 'hp-below', 'on-damage-taken', 'on-attacked', 'each-turn'] as const;
-const KINDS = ['stat', 'damage', 'heal', 'shield', 'mana', 'slow', 'status', 'extra-on-hit', 'attack-speed', 'move-speed'] as const;
-const SCALING = ['baseAd', 'ad', 'bonusAd', 'ap', 'hp', 'bonusHp', 'mana', 'bonusMana', 'armor', 'bonusArmor', 'mr', 'bonusMr', 'critChance', 'manaRegen', 'level', 'targetMaxHp', 'targetCurrentHp', 'targetMissingHp', 'targetArmor', 'targetMr'] as const;
+const TRIGGERS = ['always', 'on-hit', 'on-attack', 'after-ability', 'after-use', 'on-ability-hit', 'on-use', 'on-takedown', 'hp-below', 'on-damage-taken', 'on-attacked', 'each-turn', 'energized-max'] as const;
+const KINDS = ['stat', 'damage', 'heal', 'shield', 'mana', 'slow', 'status', 'extra-on-hit', 'attack-speed', 'move-speed', 'vigor'] as const;
+const SCALING = ['baseAd', 'ad', 'bonusAd', 'ap', 'hp', 'bonusHp', 'missingHp', 'mana', 'bonusMana', 'armor', 'bonusArmor', 'mr', 'bonusMr', 'critChance', 'manaRegen', 'level', 'spe', 'targetMaxHp', 'targetCurrentHp', 'targetMissingHp', 'targetArmor', 'targetMr', 'targetSpe'] as const;
 const DAMAGE_TYPES = ['physical', 'magic', 'true'] as const;
 const MAX_RULES = 12;
 
@@ -24,7 +25,11 @@ export type EffectRule = {
   trigger: (typeof TRIGGERS)[number];
   kind: (typeof KINDS)[number];
   /** self: al portador; target: a los objetivos golpeados (debuffs de stat, estados). */
-  appliesTo?: 'self' | 'target';
+  appliesTo?: 'self' | 'target' | 'area' | 'nearby' | 'allies';
+  /** perLevel con el nivel de cada objetivo. */
+  levelFrom?: 'target';
+  /** Daño: cura al portador daño × su robo de vida %. */
+  lifeSteal?: boolean;
   stat?: string;
   flat?: number;
   ratios?: { stat: (typeof SCALING)[number]; pct: number }[];
@@ -36,10 +41,29 @@ export type EffectRule = {
   hpBelowPct?: number;
   duration?: number;
   maxStacks?: number;
+  /** Bonus de stat permanente (sin turnos en combate). */
+  permanent?: boolean;
+  /** Solo si el portador es cuerpo a cuerpo (rango total 1) o a distancia; ausente = siempre. */
+  onlyIf?: 'melee' | 'ranged';
   note?: string;
 };
 
-export type EffectBonusConfig = { cooldown?: number; duration?: number; cdStart?: 'on-activate' | 'on-end'; rules: EffectRule[] };
+export type EffectBonusConfig = {
+  cooldown?: number;
+  duration?: number;
+  cdStart?: 'on-activate' | 'on-end';
+  /** Vigor: las habilidades que golpean también descargan el Vigor al máximo (Espada ciclovoltaica). */
+  abilityDischarge?: boolean;
+  /** Vigor al máximo: encadena a N objetivos (1-10; ausente = 1). */
+  chainTargets?: number;
+  /** Enfriamiento por objetivo: el CD va en cada objetivo (marca por portador), no en el portador (Firmamento desgarrado). */
+  perTargetCooldown?: boolean;
+  /** Al usar: máximo de objetivos enemigos (1-20). */
+  maxTargets?: number;
+  /** Cargas de combate: empieza con start (0-max), máx. max (1-99), recarga 1 cada every turnos (1-99). */
+  charges?: { start: number; max: number; every: number };
+  rules: EffectRule[];
+};
 
 const oneOf = <T extends string>(list: readonly T[], value: unknown, field: string): T => {
   if (typeof value === 'string' && (list as readonly string[]).includes(value)) return value as T;
@@ -63,6 +87,23 @@ const optText = (value: unknown, field: string, max: number): string | undefined
   return text || undefined;
 };
 
+type AppliesTo = NonNullable<EffectRule['appliesTo']>;
+const DEBUFF_TO: AppliesTo[] = ['target', 'area', 'nearby'];
+/** A quién puede ir cada tipo de regla (mismo criterio que web/src/data/effectBonus.ts appliesToOptions). */
+const APPLIES_TO_BY_KIND: Record<EffectRule['kind'], AppliesTo[]> = {
+  stat: ['self', 'allies', ...DEBUFF_TO],
+  'attack-speed': ['self', 'allies', ...DEBUFF_TO],
+  'move-speed': ['self', 'allies', ...DEBUFF_TO],
+  heal: ['self', 'allies'],
+  shield: ['self', 'allies'],
+  damage: ['self', ...DEBUFF_TO],
+  slow: ['self', ...DEBUFF_TO],
+  status: ['self', 'allies', ...DEBUFF_TO],
+  mana: ['self'],
+  vigor: ['self'],
+  'extra-on-hit': ['self'],
+};
+
 export function parseEffectBonusConfig(value: unknown): EffectBonusConfig {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new HttpError(400, 'bonus tiene que ser un objeto');
   const source = value as Record<string, unknown>;
@@ -74,8 +115,19 @@ export function parseEffectBonusConfig(value: unknown): EffectBonusConfig {
     const r = entry as Record<string, unknown>;
     const rule: EffectRule = { trigger: oneOf(TRIGGERS, r.trigger, `${field}.trigger`), kind: oneOf(KINDS, r.kind, `${field}.kind`) };
     if (r.appliesTo !== undefined && r.appliesTo !== null) {
-      const appliesTo = oneOf(['self', 'target'] as const, r.appliesTo, `${field}.appliesTo`);
-      if (appliesTo === 'target') rule.appliesTo = appliesTo;
+      const appliesTo = oneOf(['self', 'target', 'area', 'nearby', 'allies'] as const, r.appliesTo, `${field}.appliesTo`);
+      const allowed = APPLIES_TO_BY_KIND[rule.kind];
+      if (!allowed.includes(appliesTo)) throw new HttpError(400, `${field}.appliesTo «${appliesTo}» no vale para ${rule.kind}`);
+      // «self» es lo de por defecto salvo en daño / ralentización / estado (en un estado, self = al portador).
+      if (appliesTo !== 'self' || rule.kind === 'status') rule.appliesTo = appliesTo;
+    }
+    if (r.levelFrom !== undefined && r.levelFrom !== null && r.levelFrom !== '') rule.levelFrom = oneOf(['target'] as const, r.levelFrom, `${field}.levelFrom`);
+    if (r.lifeSteal !== undefined && r.lifeSteal !== null) {
+      if (typeof r.lifeSteal !== 'boolean') throw new HttpError(400, `${field}.lifeSteal tiene que ser sí/no`);
+      if (r.lifeSteal) {
+        if (rule.kind !== 'damage') throw new HttpError(400, `${field}.lifeSteal solo vale en reglas de daño`);
+        rule.lifeSteal = true;
+      }
     }
     if (r.stat !== undefined && r.stat !== null) rule.stat = oneOf(SHEET_STAT_KEYS, r.stat, `${field}.stat`);
     if (rule.kind === 'stat' && !rule.stat) throw new HttpError(400, `${field}.stat es obligatoria en un bonus de stat`);
@@ -104,8 +156,19 @@ export function parseEffectBonusConfig(value: unknown): EffectBonusConfig {
     if (hpBelowPct !== undefined) rule.hpBelowPct = hpBelowPct;
     const duration = optTurns(r.duration, `${field}.duration`);
     if (duration) rule.duration = duration;
-    const maxStacks = optTurns(r.maxStacks, `${field}.maxStacks`);
+    // Máx. stacks hasta 999 (cargas permanentes como Flujo de maná: 120).
+    const maxStacks = optNumber(r.maxStacks, `${field}.maxStacks`, 1, 999);
+    if (maxStacks !== undefined && !Number.isInteger(maxStacks)) throw new HttpError(400, `${field}.maxStacks tiene que ser un entero`);
     if (maxStacks) rule.maxStacks = maxStacks;
+    if (r.permanent !== undefined && r.permanent !== null && r.permanent !== false) {
+      if (r.permanent !== true) throw new HttpError(400, `${field}.permanent tiene que ser true o false`);
+      if (!['stat', 'attack-speed', 'move-speed'].includes(rule.kind)) throw new HttpError(400, `${field}.permanent solo vale para bonus de stat / velocidad`);
+      rule.permanent = true;
+    }
+    if (r.onlyIf !== undefined && r.onlyIf !== null && r.onlyIf !== '') {
+      const onlyIf = oneOf(['always', 'melee', 'ranged'] as const, r.onlyIf, `${field}.onlyIf`);
+      if (onlyIf !== 'always') rule.onlyIf = onlyIf;
+    }
     const note = optText(r.note, `${field}.note`, 120);
     if (note) rule.note = note;
     return rule;
@@ -116,6 +179,33 @@ export function parseEffectBonusConfig(value: unknown): EffectBonusConfig {
   const duration = optTurns(source.duration, 'bonus.duration');
   if (duration) config.duration = duration;
   if (source.cdStart !== undefined && source.cdStart !== null) config.cdStart = oneOf(['on-activate', 'on-end'] as const, source.cdStart, 'bonus.cdStart');
+  if (source.abilityDischarge !== undefined && source.abilityDischarge !== null) {
+    if (typeof source.abilityDischarge !== 'boolean') throw new HttpError(400, 'bonus.abilityDischarge tiene que ser true o false');
+    if (source.abilityDischarge) config.abilityDischarge = true;
+  }
+  if (source.chainTargets !== undefined && source.chainTargets !== null) {
+    const chain = optNumber(source.chainTargets, 'bonus.chainTargets', 1, 10);
+    if (chain !== undefined && !Number.isInteger(chain)) throw new HttpError(400, 'bonus.chainTargets tiene que ser un entero');
+    if (chain && chain > 1) config.chainTargets = chain;
+  }
+  if (source.maxTargets !== undefined && source.maxTargets !== null) {
+    const max = optNumber(source.maxTargets, 'bonus.maxTargets', 1, 20);
+    if (max !== undefined && !Number.isInteger(max)) throw new HttpError(400, 'bonus.maxTargets tiene que ser un entero');
+    if (max) config.maxTargets = max;
+  }
+  if (source.perTargetCooldown !== undefined && source.perTargetCooldown !== null) {
+    if (typeof source.perTargetCooldown !== 'boolean') throw new HttpError(400, 'bonus.perTargetCooldown tiene que ser true o false');
+    if (source.perTargetCooldown) config.perTargetCooldown = true;
+  }
+  if (source.charges !== undefined && source.charges !== null) {
+    if (typeof source.charges !== 'object' || Array.isArray(source.charges)) throw new HttpError(400, 'bonus.charges tiene que ser un objeto');
+    const c = source.charges as Record<string, unknown>;
+    const max = optNumber(c.max, 'bonus.charges.max', 1, 99);
+    const every = optNumber(c.every, 'bonus.charges.every', 1, 99);
+    const start = optNumber(c.start, 'bonus.charges.start', 0, 99);
+    if (!max || !every || ![max, every, start ?? 0].every(Number.isInteger)) throw new HttpError(400, 'bonus.charges: max y every enteros 1-99, start entero 0-max');
+    config.charges = { start: Math.min(start ?? max, max), max, every };
+  }
   return config;
 }
 
@@ -133,15 +223,18 @@ export type NamedEffectDescriptions = {
   onHit: Record<string, boolean>;
   /** { id: config } solo de los que tienen config propia. */
   bonus: Record<string, EffectBonusConfig>;
+  /** { id: patrón de área (tablero) } solo de los que lo tienen. */
+  area: Record<string, AreaPattern>;
 };
 
 export async function listNamedEffectDescriptions(): Promise<NamedEffectDescriptions> {
   const docs = await (await descriptions()).find({}).toArray();
-  const result: NamedEffectDescriptions = { descriptions: {}, onHit: {}, bonus: {} };
+  const result: NamedEffectDescriptions = { descriptions: {}, onHit: {}, bonus: {}, area: {} };
   for (const doc of docs) {
     if (typeof doc.description === 'string' && doc.description) result.descriptions[doc._id] = doc.description;
     if (typeof doc.onHit === 'boolean') result.onHit[doc._id] = doc.onHit;
     if (doc.bonus && typeof doc.bonus === 'object') result.bonus[doc._id] = doc.bonus;
+    if (doc.area && typeof doc.area === 'object') result.area[doc._id] = doc.area;
   }
   return result;
 }
@@ -154,6 +247,8 @@ export type NamedEffectDescriptionPatch = {
   onHit?: boolean | null;
   /** undefined = no se toca; null = se quita (la variante vuelve a usar la del base). */
   bonus?: EffectBonusConfig | null;
+  /** undefined = no se toca; null = se quita. */
+  area?: AreaPattern | null;
 };
 
 export function parseNamedEffectDescriptionPatch(body: unknown): NamedEffectDescriptionPatch {
@@ -175,13 +270,14 @@ export function parseNamedEffectDescriptionPatch(body: unknown): NamedEffectDesc
     patch.onHit = source.onHit === false && !source.id.includes(':') ? null : (source.onHit as boolean | null);
   }
   if ('bonus' in source) patch.bonus = source.bonus === null ? null : parseEffectBonusConfig(source.bonus);
-  if (patch.description === undefined && patch.onHit === undefined && patch.bonus === undefined) {
-    throw new HttpError(400, 'Nada que guardar (description, onHit o bonus)');
+  if ('area' in source) patch.area = parseAreaPattern(source.area) ?? null;
+  if (patch.description === undefined && patch.onHit === undefined && patch.bonus === undefined && patch.area === undefined) {
+    throw new HttpError(400, 'Nada que guardar (description, onHit, bonus o area)');
   }
   return patch;
 }
 
-export async function setNamedEffectDescription(patch: NamedEffectDescriptionPatch): Promise<{ id: string; description: string; onHit: boolean | null; bonus: EffectBonusConfig | null }> {
+export async function setNamedEffectDescription(patch: NamedEffectDescriptionPatch): Promise<{ id: string; description: string; onHit: boolean | null; bonus: EffectBonusConfig | null; area: AreaPattern | null }> {
   const col = await descriptions();
   const set: Partial<DescriptionDoc> = { updatedAt: new Date().toISOString() };
   const unset: Record<string, ''> = {};
@@ -197,18 +293,23 @@ export async function setNamedEffectDescription(patch: NamedEffectDescriptionPat
     if (patch.bonus === null) unset.bonus = '';
     else set.bonus = patch.bonus;
   }
+  if (patch.area !== undefined) {
+    if (patch.area === null) unset.area = '';
+    else set.area = patch.area;
+  }
   await col.updateOne(
     { _id: patch.id },
     { $set: set, ...(Object.keys(unset).length ? { $unset: unset } : {}) },
     { upsert: true },
   );
-  // Se borra solo si ya no queda nada (ni descripción, ni onHit, ni bonus).
-  await col.deleteOne({ _id: patch.id, description: { $exists: false }, onHit: { $exists: false }, bonus: { $exists: false } });
+  // Se borra solo si ya no queda nada (ni descripción, ni onHit, ni bonus, ni área).
+  await col.deleteOne({ _id: patch.id, description: { $exists: false }, onHit: { $exists: false }, bonus: { $exists: false }, area: { $exists: false } });
   const doc = await col.findOne({ _id: patch.id });
   return {
     id: patch.id,
     description: typeof doc?.description === 'string' ? doc.description : '',
     onHit: typeof doc?.onHit === 'boolean' ? doc.onHit : null,
     bonus: doc?.bonus ?? null,
+    area: doc?.area ?? null,
   };
 }

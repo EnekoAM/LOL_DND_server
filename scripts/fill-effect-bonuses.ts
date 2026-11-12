@@ -3,7 +3,7 @@
  * Valores de la wiki de LoL (parche actual) pasados a turnos: 1 turno ≈ 2 s, redondeando hacia arriba, mínimo 1.
  * Antes copia namedEffectDescriptions e items en backups/<fecha>-effect-bonuses/. Solo hace $set de bonus
  * (upsert por _id): nunca toca description ni onHit. Si el id ya tiene bonus, no se pisa (salvo --force).
- *   npx tsx scripts/fill-effect-bonuses.ts [--dry] [--force]
+ *   npx tsx scripts/fill-effect-bonuses.ts [--dry] [--force] [--only=id1,id2]
  */
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -74,6 +74,8 @@ export const BONUSES: Record<string, EffectBonusConfig> = {
     { trigger: 'on-hit', kind: 'heal', ratios: [{ stat: 'baseAd', pct: 100 }], note: '+6% de la vida perdida' },
   ] },
   'energized:magic': { cooldown: 2, rules: [{ trigger: 'on-hit', kind: 'damage', damageType: 'magic', flat: 60, note: 'ataque cargado (100 cargas); Cañón 40, Statikk 60, Rompetormentas 100' }] },
+  // Puñal de Statikk: Electrochoque = cargas de Vigor extra por AA (+9; con las 7 base, 16).
+  electroshock: { rules: [{ trigger: 'on-hit', kind: 'vigor', flat: 9, note: 'Puñal de Statikk: +9 cargas de Vigor por AA' }] },
   'energized:physical': { cooldown: 2, rules: [{ trigger: 'on-hit', kind: 'damage', damageType: 'physical', flat: 100, note: 'Ciclovoltaica: ataque cargado; ralentiza 99% a súbditos' }] },
 
   // ── Siempre ──
@@ -119,8 +121,11 @@ export const BONUSES: Record<string, EffectBonusConfig> = {
 async function main() {
   const dry = process.argv.includes('--dry');
   const force = process.argv.includes('--force');
+  // --only=id1,id2: solo esos ids (p. ej. --only=electroshock).
+  const onlyArg = process.argv.find(arg => arg.startsWith('--only='));
+  const only = onlyArg ? new Set(onlyArg.slice(7).split(',').map(id => id.trim()).filter(Boolean)) : null;
   // Validación con el mismo parser que el PATCH de la API.
-  const parsed = Object.fromEntries(Object.entries(BONUSES).map(([id, config]) => [id, parseEffectBonusConfig(config)]));
+  const parsed = Object.fromEntries(Object.entries(BONUSES).filter(([id]) => !only || only.has(id)).map(([id, config]) => [id, parseEffectBonusConfig(config)]));
   const db = await getDb();
   const col = db.collection<{ _id: string; bonus?: unknown; description?: string; onHit?: boolean; updatedAt?: string }>('namedEffectDescriptions');
   const items = await db.collection('items').find({}, { projection: { nombre: 1, namedEffects: 1 } }).toArray();

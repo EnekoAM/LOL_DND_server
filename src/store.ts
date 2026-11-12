@@ -2194,6 +2194,7 @@ function toCombat(doc: Document | null): CombatState & { updatedAt?: string } {
     round: typeof doc.round === 'number' && doc.round >= 1 ? Math.trunc(doc.round) : 1,
     turnIndex: typeof doc.turnIndex === 'number' && doc.turnIndex >= 0 ? Math.trunc(doc.turnIndex) : 0,
     participants: participants as CombatState['participants'],
+    ...(typeof doc.vigorPerMove === 'number' && Number.isFinite(doc.vigorPerMove) ? { vigorPerMove: doc.vigorPerMove } : {}),
     updatedAt: typeof doc.updatedAt === 'string' ? doc.updatedAt : undefined,
   };
 }
@@ -2213,6 +2214,7 @@ export async function replaceCombat(state: CombatState): Promise<CombatState & {
         round: state.round,
         turnIndex: state.turnIndex,
         participants: state.participants,
+        ...(typeof state.vigorPerMove === 'number' ? { vigorPerMove: state.vigorPerMove } : {}),
         updatedAt,
       },
     },

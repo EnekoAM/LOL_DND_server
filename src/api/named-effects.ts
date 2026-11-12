@@ -13,7 +13,8 @@ function isAdmin(req: ApiRequest): boolean {
 /**
  * /api/named-effects — descripciones de los efectos con nombre (Vigor, Hoja encantada (mágica)…).
  * GET    { descriptions: { id: texto }, onHit: { id: boolean } } (cualquiera).
- * PATCH  { id, description?, onHit?, bonus? } (admin). bonus: { cooldown?, duration?, cdStart?, rules[] }; null = la variante usa la del base.
+ * PATCH  { id, description?, onHit?, bonus?, area? } (admin). area: { size, user, target, tiles } (tablero); null = sin área.
+ *        bonus: { cooldown?, duration?, cdStart?, rules[] }; null = la variante usa la del base.
  *        (admin). Texto vacío borra la descripción; onHit null quita el valor propio (la variante hereda).
  */
 export default withLive({ PATCH: ['namedEffects'] }, withErrors(async (req, res) => {

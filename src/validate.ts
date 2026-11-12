@@ -1,6 +1,7 @@
 import { RANKED_SLOTS, maxRank, type RankedSlot } from './abilityRanks';
 import { RESOURCE_IDS, isResourceId, type ResourceId } from './resources';
 import { HttpError } from './errors';
+import { parseAreaPattern, type AreaPattern } from './areaPattern';
 
 const PARTY_FIELDS = ['gold', 'level', 'exp', 'expToNextLevel'] as const;
 const ROLL_RARITIES = ['basico', 'epico', 'legendario'] as const;
@@ -803,6 +804,10 @@ export type ChampionAbility = {
   variants?: ChampionAbilityVariant[];
   /** sequential (por defecto) = Usar avanza de fase; choose = se elige la fase al usar (combos de Hwei). */
   phaseMode?: 'sequential' | 'choose';
+  /** Patrón de área (tablero): usuario, objetivo y casillas donde hace efecto. */
+  area?: AreaPattern;
+  /** La habilidad aplica efectos de impacto (dispara las reglas «Al aplicar efecto de impacto»). */
+  appliesOnHit?: boolean;
 };
 
 /** Fase alternativa de una habilidad (Q de Aatrox, Riven, básicas de Hwei…). */
@@ -930,6 +935,10 @@ export function parseChampionAbilityPatch(body: unknown): ChampionAbilityPatch {
     if (typeof abilitySource.hasStacks !== 'boolean') throw new HttpError(400, 'hasStacks tiene que ser true o false');
     ability.hasStacks = abilitySource.hasStacks;
   }
+  if ('appliesOnHit' in abilitySource && abilitySource.appliesOnHit !== undefined && abilitySource.appliesOnHit !== null) {
+    if (typeof abilitySource.appliesOnHit !== 'boolean') throw new HttpError(400, 'appliesOnHit tiene que ser true o false');
+    if (abilitySource.appliesOnHit) ability.appliesOnHit = true;
+  }
   if ('maxStacks' in abilitySource && abilitySource.maxStacks !== undefined && abilitySource.maxStacks !== null) {
     if (typeof abilitySource.maxStacks !== 'number' || !Number.isInteger(abilitySource.maxStacks) || abilitySource.maxStacks < 1 || abilitySource.maxStacks > 999) {
       throw new HttpError(400, 'maxStacks tiene que ser un entero entre 1 y 999');
@@ -973,6 +982,10 @@ export function parseChampionAbilityPatch(body: unknown): ChampionAbilityPatch {
       throw new HttpError(400, 'phaseMode tiene que ser sequential o choose');
     }
     if (abilitySource.phaseMode === 'choose') ability.phaseMode = 'choose';
+  }
+  if ('area' in abilitySource) {
+    const area = parseAreaPattern(abilitySource.area);
+    if (area) ability.area = area;
   }
   return { slot: source.slot as ChampionSlot, ability };
 }
@@ -1187,7 +1200,7 @@ export function bonusStat(value: unknown, field: string): SheetStatKey {
  * Bonus de combate: una stat de la ficha, o un marcador de los efectos con nombre
  * («armed» = siguiente AA potenciado, «cooldown» = efecto en enfriamiento); los marcadores no suman stats.
  */
-export const COMBAT_MARKER_STATS = ['armed', 'cooldown'] as const;
+export const COMBAT_MARKER_STATS = ['armed', 'cooldown', 'charges'] as const;
 function combatBonusStat(value: unknown, field: string): SheetStatKey | (typeof COMBAT_MARKER_STATS)[number] {
   if (typeof value === 'string' && (COMBAT_MARKER_STATS as readonly string[]).includes(value)) return value as (typeof COMBAT_MARKER_STATS)[number];
   return bonusStat(value, field);
@@ -2223,11 +2236,15 @@ export type CombatParticipant = {
   /** Máximo del recurso fijado a mano (si no, el de sus stats / Recurso). */
   resourceMax?: number;
   /** Ataques / habilidades que le quedan este turno (ausente = todos). */
-  actionsLeft?: { attacks?: number; abilities?: number };
+  actionsLeft?: { attacks?: number; abilities?: number; items?: number };
   /** Ataques / habilidades extra de este turno (ya incluidos en actionsLeft). */
-  actionsExtra?: { attacks?: number; abilities?: number };
+  actionsExtra?: { attacks?: number; abilities?: number; items?: number };
   /** Bonus temporales de stats (manuales o de pasivas de ítems). */
   bonuses?: CombatBonus[];
+  /** Cargas de Vigor (0-100; solo cuentan con un ítem de Vigor). */
+  vigor?: number;
+  /** Movimiento gastado este turno (casillas); se borra al empezar su turno. */
+  movementUsed?: number;
 };
 
 export type CombatState = {
@@ -2236,8 +2253,12 @@ export type CombatState = {
   /** Índice en la lista ya ordenada por iniciativa. */
   turnIndex: number;
   participants: CombatParticipant[];
+  /** Vigor que da cada casilla de movimiento (ajustable en el combate; por defecto 1). */
+  vigorPerMove?: number;
   updatedAt?: string;
 };
+
+export const COMBAT_VIGOR_MAX = 100;
 
 const COMBAT_NAME_MAX = 80;
 const COMBAT_EFFECT_NAME_MAX = 80;
@@ -2288,12 +2309,15 @@ function combatEffect(value: unknown): CombatEffect {
 /** Bonus temporal de stats en combate: amount × stacks se suma al total; turns baja al empezar su turno. */
 export type CombatBonus = {
   id: string;
-  /** Stat de la ficha o marcador de efecto con nombre (armed / cooldown). */
-  stat: SheetStatKey | 'armed' | 'cooldown';
+  /** Stat de la ficha o marcador de efecto con nombre (armed / cooldown / charges). */
+  stat: SheetStatKey | 'armed' | 'cooldown' | 'charges';
   amount: number;
   stacks?: number;
   maxStacks?: number;
   turns?: number;
+  /** Marcador 'charges' (cargas de combate): turnos para la siguiente recarga y cada cuántos recarga. */
+  recharge?: number;
+  rechargeEvery?: number;
   /** "manual" o "item:<nombre>". */
   source?: string;
   label?: string;
@@ -2309,19 +2333,30 @@ export function combatBonuses(value: unknown): CombatBonus[] {
     const source = entry as Record<string, unknown>;
     const id = boundedText(source.id, `bonuses[${index}].id`, 64);
     if (!id) throw new HttpError(400, `bonuses[${index}].id es obligatorio`);
-    const bonus: CombatBonus = {
-      id,
-      stat: combatBonusStat(source.stat, `bonuses[${index}].stat`),
-      amount: bonusAmount(source.amount, `bonuses[${index}].amount`),
-    };
-    const stacks = optionalCount(source.stacks, `bonuses[${index}].stacks`, 1, 99);
+    const stat = combatBonusStat(source.stat, `bonuses[${index}].stat`);
+    // Cargas de combate: amount = cargas que quedan (0 vale), maxStacks = máximo.
+    const amount = stat === 'charges' ? nonNegInt(source.amount, `bonuses[${index}].amount`) : bonusAmount(source.amount, `bonuses[${index}].amount`);
+    if (stat === 'charges' && amount > 99) throw new HttpError(400, `bonuses[${index}].amount: máx. 99 cargas`);
+    const bonus: CombatBonus = { id, stat, amount };
+    if (stat === 'charges') {
+      const recharge = optionalCount(source.recharge, `bonuses[${index}].recharge`, 1, 99);
+      if (recharge !== undefined) bonus.recharge = recharge;
+      const every = optionalCount(source.rechargeEvery, `bonuses[${index}].rechargeEvery`, 1, 99);
+      if (every !== undefined) bonus.rechargeEvery = every;
+    }
+    const stacks = optionalCount(source.stacks, `bonuses[${index}].stacks`, 1, 999);
     if (stacks !== undefined) bonus.stacks = stacks;
-    const maxStacks = optionalCount(source.maxStacks, `bonuses[${index}].maxStacks`, 1, 99);
+    const maxStacks = optionalCount(source.maxStacks, `bonuses[${index}].maxStacks`, 1, 999);
     if (maxStacks !== undefined) bonus.maxStacks = maxStacks;
     const turns = optionalCount(source.turns, `bonuses[${index}].turns`, 1, 99);
     if (turns !== undefined) bonus.turns = turns;
     const origin = boundedText(source.source, `bonuses[${index}].source`, 80);
     if (origin) bonus.source = origin;
+    // CD por objetivo (marca de un portador): cd:<efecto>@<id del portador>, solo como marcador 'cooldown' con turnos.
+    if (origin && origin.startsWith('cd:') && origin.includes('@')) {
+      if (!/^cd:[a-z0-9-]{1,60}@[A-Za-z0-9_-]{1,64}$/.test(origin)) throw new HttpError(400, `bonuses[${index}].source: CD por objetivo no válido`);
+      if (bonus.stat !== 'cooldown' || bonus.turns === undefined) throw new HttpError(400, `bonuses[${index}]: el CD por objetivo tiene que ser un marcador 'cooldown' con turnos`);
+    }
     const label = boundedText(source.label, `bonuses[${index}].label`, 80);
     if (label) bonus.label = label;
     return bonus;
@@ -2392,8 +2427,8 @@ function combatParticipant(value: unknown): CombatParticipant {
       throw new HttpError(400, `${field} tiene que ser un objeto`);
     }
     const raw = value as Record<string, unknown>;
-    const actions: { attacks?: number; abilities?: number } = {};
-    for (const key of ['attacks', 'abilities'] as const) {
+    const actions: { attacks?: number; abilities?: number; items?: number } = {};
+    for (const key of ['attacks', 'abilities', 'items'] as const) {
       if (raw[key] === undefined || raw[key] === null) continue;
       const n = nonNegInt(raw[key], `${field}.${key}`);
       if (n > 99) throw new HttpError(400, `${field}.${key} no puede superar 99`);
@@ -2405,6 +2440,16 @@ function combatParticipant(value: unknown): CombatParticipant {
   if (source.bonuses !== undefined && source.bonuses !== null) {
     const bonuses = combatBonuses(source.bonuses);
     if (bonuses.length) participant.bonuses = bonuses;
+  }
+  if (source.vigor !== undefined && source.vigor !== null) {
+    const vigor = nonNegInt(source.vigor, 'vigor');
+    if (vigor > COMBAT_VIGOR_MAX) throw new HttpError(400, `vigor no puede superar ${COMBAT_VIGOR_MAX}`);
+    if (vigor > 0) participant.vigor = vigor;
+  }
+  if (source.movementUsed !== undefined && source.movementUsed !== null) {
+    const used = nonNegInt(source.movementUsed, 'movementUsed');
+    if (used > 999) throw new HttpError(400, 'movementUsed no puede superar 999');
+    if (used > 0) participant.movementUsed = used;
   }
   if (source.cooldowns !== undefined && source.cooldowns !== null) {
     participant.cooldowns = parsePlayerCooldowns(source.cooldowns);
@@ -2529,7 +2574,15 @@ export function parseCombatState(body: unknown): CombatState {
   let turnIndex = nonNegInt(source.turnIndex, 'turnIndex');
   if (participants.length === 0) turnIndex = 0;
   else if (turnIndex >= participants.length) turnIndex = 0;
-  return { active: source.active, round, turnIndex, participants };
+  const state: CombatState = { active: source.active, round, turnIndex, participants };
+  if (source.vigorPerMove !== undefined && source.vigorPerMove !== null) {
+    const rate = source.vigorPerMove;
+    if (typeof rate !== 'number' || !Number.isFinite(rate) || rate < 0 || rate > 100) {
+      throw new HttpError(400, 'vigorPerMove tiene que ser un número entre 0 y 100');
+    }
+    state.vigorPerMove = Math.round(rate * 100) / 100;
+  }
+  return state;
 }
 
 /** Contadores de stacks por player. Claves: item:<nombre> | ability:<nombre>. */
@@ -2552,8 +2605,9 @@ export function parsePlayerStacks(value: unknown): Record<string, number> {
     if (!key || key.length > STACKS_KEY_MAX || key.includes('.') || key.startsWith('$')) {
       throw new HttpError(400, `Clave de stack no válida: ${rawKey}`);
     }
-    if (!key.startsWith('item:') && !key.startsWith('ability:')) {
-      throw new HttpError(400, `Clave de stack debe empezar por item: o ability: (${key})`);
+    // effect:<id del efecto base>: cargas permanentes del personaje (siguen entre combates y sin el ítem).
+    if (!key.startsWith('item:') && !key.startsWith('ability:') && !key.startsWith('effect:')) {
+      throw new HttpError(400, `Clave de stack debe empezar por item:, ability: o effect: (${key})`);
     }
     if (typeof rawVal !== 'number' || !Number.isFinite(rawVal) || !Number.isInteger(rawVal) || rawVal < 0) {
       throw new HttpError(400, `stacks[${key}] tiene que ser un entero ≥ 0`);
