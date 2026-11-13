@@ -15,9 +15,9 @@ import { SHEET_STAT_KEYS } from './validate';
 type DescriptionDoc = { _id: string; description?: string; onHit?: boolean; bonus?: EffectBonusConfig; area?: AreaPattern; updatedAt: string };
 
 // ── Configurador de bonus (mismo modelo que web/src/data/effectBonus.ts) ──
-const TRIGGERS = ['always', 'on-hit', 'on-attack', 'after-ability', 'after-use', 'on-ability-hit', 'on-use', 'on-takedown', 'hp-below', 'on-damage-taken', 'on-attacked', 'each-turn', 'energized-max'] as const;
-const KINDS = ['stat', 'damage', 'heal', 'shield', 'mana', 'slow', 'status', 'extra-on-hit', 'attack-speed', 'move-speed', 'vigor'] as const;
-const SCALING = ['baseAd', 'ad', 'bonusAd', 'ap', 'hp', 'bonusHp', 'missingHp', 'mana', 'bonusMana', 'armor', 'bonusArmor', 'mr', 'bonusMr', 'critChance', 'manaRegen', 'level', 'spe', 'targetMaxHp', 'targetCurrentHp', 'targetMissingHp', 'targetArmor', 'targetMr', 'targetSpe'] as const;
+const TRIGGERS = ['always', 'on-hit', 'on-attack', 'after-ability', 'after-use', 'on-ability-hit', 'on-use', 'on-takedown', 'hp-below', 'on-damage-taken', 'on-attacked', 'each-turn', 'energized-max', 'on-ultimate-use'] as const;
+const KINDS = ['stat', 'damage', 'heal', 'shield', 'mana', 'slow', 'status', 'extra-on-hit', 'attack-speed', 'move-speed', 'vigor', 'damage-reduction', 'execute', 'extra-action'] as const;
+const SCALING = ['baseAd', 'ad', 'bonusAd', 'ap', 'hp', 'bonusHp', 'missingHp', 'mana', 'bonusMana', 'armor', 'bonusArmor', 'mr', 'bonusMr', 'critChance', 'manaRegen', 'level', 'spe', 'targetMaxHp', 'targetCurrentHp', 'targetMissingHp', 'targetArmor', 'targetMr', 'targetSpe', 'lethality'] as const;
 const DAMAGE_TYPES = ['physical', 'magic', 'true'] as const;
 const MAX_RULES = 12;
 
@@ -39,6 +39,28 @@ export type EffectRule = {
   statusName?: string;
   count?: number;
   hpBelowPct?: number;
+  targetHpBelowPct?: number;
+  healFromDealtPct?: number;
+  fromDamagePct?: number;
+  vs?: 'aa' | 'all';
+  action?: string;
+  dice?: string;
+  everyN?: number;
+  perTargetCounter?: boolean;
+  missingHpScalePct?: number;
+  triggerAtMax?: boolean;
+  requiresMaxStacks?: boolean;
+  delayTurns?: number;
+  halfAfterTurns?: number;
+  fromManaSpentPct?: number;
+  critPotencyPct?: number;
+  pulseEachTurn?: boolean;
+  spellShield?: boolean;
+  cooldownOnProc?: boolean;
+  unseenTurns?: number;
+  armedTurnsAfterSeen?: number;
+  auraRange?: number;
+  damageAmpPct?: number;
   duration?: number;
   maxStacks?: number;
   /** Bonus de stat permanente (sin turnos en combate). */
@@ -64,6 +86,7 @@ export type EffectBonusConfig = {
   maxTargets?: number;
   /** Cargas de combate: empieza con start (0-max), máx. max (1-99), recarga 1 cada every turnos (1-99). */
   charges?: { start: number; max: number; every: number; perTurn?: boolean };
+  oncePerCombat?: boolean;
   rules: EffectRule[];
 };
 
@@ -104,6 +127,9 @@ const APPLIES_TO_BY_KIND: Record<EffectRule['kind'], AppliesTo[]> = {
   mana: ['self'],
   vigor: ['self'],
   'extra-on-hit': ['self'],
+  'damage-reduction': ['self'],
+  execute: ['target', 'area', 'nearby'],
+  'extra-action': ['self'],
 };
 
 export function parseEffectBonusConfig(value: unknown): EffectBonusConfig {
@@ -156,6 +182,52 @@ export function parseEffectBonusConfig(value: unknown): EffectBonusConfig {
     if (count) rule.count = count;
     const hpBelowPct = optNumber(r.hpBelowPct, `${field}.hpBelowPct`, 0, 100);
     if (hpBelowPct !== undefined) rule.hpBelowPct = hpBelowPct;
+    const targetHpBelowPct = optNumber(r.targetHpBelowPct, `${field}.targetHpBelowPct`, 0, 100);
+    if (targetHpBelowPct !== undefined) rule.targetHpBelowPct = targetHpBelowPct;
+    const healFromDealtPct = optNumber(r.healFromDealtPct, `${field}.healFromDealtPct`, 0, 1000);
+    if (healFromDealtPct !== undefined) rule.healFromDealtPct = healFromDealtPct;
+    const fromDamagePct = optNumber(r.fromDamagePct, `${field}.fromDamagePct`, 0, 1000);
+    if (fromDamagePct !== undefined) rule.fromDamagePct = fromDamagePct;
+    if (r.vs !== undefined && r.vs !== null && r.vs !== '') rule.vs = oneOf(['aa', 'all'] as const, r.vs, `${field}.vs`);
+    const action = optText(r.action, `${field}.action`, 40);
+    if (action) rule.action = action;
+    const dice = optText(r.dice, `${field}.dice`, 40);
+    if (dice) {
+      if (!/^\d*d\d+(?:[+-]\d+(?:\.\d+)?)?$/i.test(dice.replace(/\s+/g, ''))) throw new HttpError(400, `${field}.dice no es una tirada válida (p. ej. 4d10+13)`);
+      rule.dice = dice.replace(/\s+/g, '');
+    }
+    const everyN = optNumber(r.everyN, `${field}.everyN`, 2, 99);
+    if (everyN !== undefined) {
+      if (!Number.isInteger(everyN)) throw new HttpError(400, `${field}.everyN tiene que ser un entero`);
+      rule.everyN = everyN;
+    }
+    if (r.perTargetCounter === true) rule.perTargetCounter = true;
+    const missingHpScalePct = optNumber(r.missingHpScalePct, `${field}.missingHpScalePct`, 0, 1000);
+    if (missingHpScalePct !== undefined) rule.missingHpScalePct = missingHpScalePct;
+    if (r.triggerAtMax === true) rule.triggerAtMax = true;
+    if (r.requiresMaxStacks === true) rule.requiresMaxStacks = true;
+    const delayTurns = optTurns(r.delayTurns, `${field}.delayTurns`);
+    if (delayTurns) rule.delayTurns = delayTurns;
+    const halfAfterTurns = optTurns(r.halfAfterTurns, `${field}.halfAfterTurns`);
+    if (halfAfterTurns) rule.halfAfterTurns = halfAfterTurns;
+    const fromManaSpentPct = optNumber(r.fromManaSpentPct, `${field}.fromManaSpentPct`, 0, 1000);
+    if (fromManaSpentPct !== undefined) rule.fromManaSpentPct = fromManaSpentPct;
+    const critPotencyPct = optNumber(r.critPotencyPct, `${field}.critPotencyPct`, 0, 100);
+    if (critPotencyPct !== undefined) rule.critPotencyPct = critPotencyPct;
+    if (r.pulseEachTurn === true) rule.pulseEachTurn = true;
+    if (r.spellShield === true) rule.spellShield = true;
+    if (r.cooldownOnProc === true) rule.cooldownOnProc = true;
+    const unseenTurns = optTurns(r.unseenTurns, `${field}.unseenTurns`);
+    if (unseenTurns) rule.unseenTurns = unseenTurns;
+    const armedTurnsAfterSeen = optTurns(r.armedTurnsAfterSeen, `${field}.armedTurnsAfterSeen`);
+    if (armedTurnsAfterSeen) rule.armedTurnsAfterSeen = armedTurnsAfterSeen;
+    const auraRange = optNumber(r.auraRange, `${field}.auraRange`, 1, 20);
+    if (auraRange !== undefined) {
+      if (!Number.isInteger(auraRange)) throw new HttpError(400, `${field}.auraRange tiene que ser un entero`);
+      rule.auraRange = auraRange;
+    }
+    const damageAmpPct = optNumber(r.damageAmpPct, `${field}.damageAmpPct`, 0, 1000);
+    if (damageAmpPct !== undefined) rule.damageAmpPct = damageAmpPct;
     const duration = optTurns(r.duration, `${field}.duration`);
     if (duration) rule.duration = duration;
     // Máx. stacks hasta 999 (cargas permanentes como Flujo de maná: 120).
@@ -203,6 +275,10 @@ export function parseEffectBonusConfig(value: unknown): EffectBonusConfig {
   if (source.perTargetCooldown !== undefined && source.perTargetCooldown !== null) {
     if (typeof source.perTargetCooldown !== 'boolean') throw new HttpError(400, 'bonus.perTargetCooldown tiene que ser true o false');
     if (source.perTargetCooldown) config.perTargetCooldown = true;
+  }
+  if (source.oncePerCombat !== undefined && source.oncePerCombat !== null) {
+    if (typeof source.oncePerCombat !== 'boolean') throw new HttpError(400, 'bonus.oncePerCombat tiene que ser true o false');
+    if (source.oncePerCombat) config.oncePerCombat = true;
   }
   if (source.charges !== undefined && source.charges !== null) {
     if (typeof source.charges !== 'object' || Array.isArray(source.charges)) throw new HttpError(400, 'bonus.charges tiene que ser un objeto');
