@@ -1,0 +1,222 @@
+{
+  "Kha'zix": {
+    "P": {
+      "name": "Amenaza invisible",
+      "description": "El siguiente ataque básico contra un campeón tras estar sin visión o al usar Asalto del Vacío inflige daño mágico extra 50 % AD bonus (sin base plana; automático si está armado) y Ralentización 25 % 1 t. (2 s ÷ 2; automático). Se arma a mano con «Armar» (ha perdido la visión / está invisible) o automáticamente al usar la R."
+    },
+    "Q": {
+      "name": "Saborea su miedo",
+      "description": "Habilidad de unidad (alcance ~2 casillas / 325 u.): daño físico 95/100/105/110/115 % AD bonus (105 % en rango 3, ±0,05; sin base plana; automático). Si el objetivo está aislado (sin aliados a ~2 casillas / 375 u.; a juicio de mesa), el daño es ×2,1 (automático con «Objetivo aislado»). Evolución Reaper Claws: +0,25 casillas de alcance en AA y Q (50 u.; a mano; se puede contar como 1 casilla) y, en LoL, −45 % CD si está aislado (aquí no hay CD de habilidades; no se convierte)."
+    },
+    "W": {
+      "name": "Pincho del Vacío",
+      "description": "Lanza una púa (alcance 5 casillas / 1025 u.) que explota (radio ~1 casilla / 275 u.): daño físico 90/95/100/105/110 % AD bonus (100 % en rango 3, ±0,05; sin base plana; automático). Si está en la explosión, se cura 11/15/19/23/27 (55–135 LoL ÷ 5, sin redondear) + 40/45/50/55/60 % AP (50 % en rango 3, ±0,05; automático con «Estoy en el área»). Evolución Spike Racks: tres púas en cono (a mano; no hay daño/cura extra por varias explosiones), Ralentización 40 % 2 t. (2,25 s ÷ 2; 60 % si el objetivo está aislado, automático con «Objetivo aislado») y Revelación 2 t. (a mano)."
+    },
+    "E": {
+      "name": "Salto",
+      "description": "Salta al punto elegido (alcance 4 casillas / 700 u.; 3,5 redondeado; zona de aterrizaje ~1,5 casillas / 300 u.): daño físico 30/35/40/45/50 % AD bonus (40 % en rango 3, ±0,05; sin base plana; automático). Se puede usar Saborea su miedo durante el salto (a mano). Evolución Wings: alcance 5 casillas / 1000 u. (a mano) y, al conseguir una eliminación o asistencia, un Salto extra gratis (recast hasta usarlo; automático)."
+    },
+    "R": {
+      "name": "Asalto del Vacío",
+      "description": "Se vuelve Invisible 1 t. (1,25 s ÷ 2) y gana +40 % SPE mientras dura (automático). Arma Amenaza invisible (automático). Tras acabar la invisibilidad, se puede relanzar 1 vez gratis durante 6 t. (ventana 12 s ÷ 2; el retraso de 2 s de la wiki no se modela; automático; no se puede recastear mientras está Invisible). Cada rango de la R da 1 hueco de evolución permanente (1/2/3; automático; la 4.ª por la caza de Rengar va a mano). Evolución Adaptive Cloaking: 2 recasts (3 usos en total); la duración evolucionada (2 s) también queda en 1 t. con la regla de tiempos."
+    }
+  },
+  "Kog'Maw": {
+    "P": {
+      "name": "Sorpresa de Icathia",
+      "description": "Al recibir daño letal (botón «Al morir»): entra en estado zombi 2 t. (4 s ÷ 2), impasable / inobjetivo / inmune a control y no puede atacar, lanzar habilidades ni usar objetos (a mano). Gana +50 % SPE mientras dura (en la wiki sube de 10 % a 50 %; aquí se aplica el máximo; automático). Al acabar (o con «Explotar»): explosión de daño verdadero en radio 2 casillas / 400 u. La base plana 140–650 según nivel se omite (regla de daño plano); el daño va a mano."
+    },
+    "Q": {
+      "name": "Baba cáustica",
+      "description": "Pasiva (si está aprendida): +5/10/15/20/25 % de velocidad de ataque (automático). Activa (alcance 6 casillas / 1200 u., primer enemigo): daño mágico 80/85/90/95/100 % AP (90 % en rango 3, ±0,05; sin base plana; automático) y reduce CA y RM 16/20/24/28/32 % 2 t. (4 s ÷ 2; automático, el % se calcula sobre la CA/RM del objetivo al aplicarlo)."
+    },
+    "W": {
+      "name": "Andanada bioarcana",
+      "description": "Durante 4 t. (8 s ÷ 2): +1 casilla de alcance de ataque (130–210 u. ≈ 0,65–1,05; se aplica +1 en todos los rangos; automático) y los AA infligen daño mágico adicional 3/3,75/4,5/5,25/6 % de la vida máx. del objetivo + 1,5 % por cada 100 de AP (automático; no se aplica la regla ±0,05 a estos % de vida). Tope 100 contra súbditos y monstruos, y no afecta a estructuras (a mano)."
+    },
+    "E": {
+      "name": "Vacío rezumante",
+      "description": "Lanza un moco en línea (alcance 7 casillas / 1360 u.; 6,8 redondeado; ancho ~1 casilla / 240 u.): daño mágico 55/60/65/70/75 % AP (65 % en rango 3, ±0,05; sin base plana; automático) y Ralentización 40/45/50/55/60 % 2 t. (3 s ÷ 2; automático a quienes alcance el proyectil). El rastro de moco dura 2 t. y ralentiza a quienes entren después (a mano)."
+    },
+    "R": {
+      "name": "Artillería viviente",
+      "description": "Artillería (alcance 7/8/9 casillas / 1300/1550/1800 u.; 6,5/7,75/9 redondeado; radio ~1 casilla / 240 u.): daño mágico 75/85/95 % AD bonus (75 % en la wiki en todos los rangos, +0,1/rango) + 35/45/55 % AP (35 % en rango 1, +0,1/rango; en la wiki es 35/40/45 %; sin base plana; automático). Si el objetivo está por debajo del 40 % de vida máx., el daño ×2 (automático si se conoce la vida; si no, a mano). Por encima de ese umbral, el daño escala hasta +50 % según la vida faltante (automático si se conoce la vida). Revelación 1 t. (2 s ÷ 2; a mano; no revela en sigilo). Cada uso en 4 t. (8 s ÷ 2) suma 20 de coste de maná (40 LoL ÷ 2), hasta 9 acumulaciones (máx. 200; automático). El coste base es 20."
+    }
+  },
+  "Bel'Veth": {
+    "P": {
+      "name": "Muerte en lavanda",
+      "description": "Sin tope de velocidad de ataque y no gana vel. ataque por nivel (a mano / en la ficha). Tras lanzar una habilidad: +20 % vel. ataque 2 t. (3 s ÷ 2; automático, se refresca; el ghosting a mano). Al derribar a un campeón o jugador: +2 acumulaciones permanentes de Lavanda; monstruo grande o súbdito grande: +1 (automático en derribo; los súbditos pequeños no deberían contar, a mano). Cada acumulación: +0,1 / 0,66 / 1,22 / 1,78 % vel. ataque (tramos 1/6/11/16; en la wiki 0,1–2 % lineal hasta el 18; automático)."
+    },
+    "Q": {
+      "name": "Oleada del Vacío",
+      "description": "Cuatro dashes cardinales independientes (alcance 2 casillas / 400 u.). Cada dirección tiene su propio CD 8/8/7/7/6 t. (16/15/14/13/12 s ÷ 2) y hay 2/2/2/1/1 t. entre dashes (4/3,25/2,5/1,75/1 s ÷ 2; automático). Daño físico 95/100/105/110/115 % AD (105 % en rango 3, ±0,05; sin base plana 12–20; automático). El primer objetivo aplica efectos de impacto y robo de vida (automático; el crítico a mano). Los objetivos secundarios del dash son de área y no aplican impacto (a mano). +70 a monstruos (plano, omitido). La forma verdadera permite atravesar terreno y suma alcance (a mano). El CD de las direcciones se reduce con vel. ataque bonus (a mano). W al acertar un campeón reinicia 1 dirección (automático)."
+    },
+    "W": {
+      "name": "Arriba y abajo",
+      "description": "Golpe en línea (alcance 3 casillas / 660 u. ≈ 3,3; ancho 1 casilla / 200 u.): daño mágico 140/145/150/155/160 % AP (150 % en rango 3, ±0,05; sin base plana; automático), Lanzado al aire 1 t. (0,6–1,0 s ÷ 2, mín. 1; automático) y Ralentización 30 % 1 t. (2 s ÷ 2; segundo efecto, a mano si el motor solo aplica el primero). Si acierta a un campeón, reinicia una dirección de Oleada del Vacío (automático)."
+    },
+    "E": {
+      "name": "Vorágine real",
+      "description": "Canaliza 1 t. (1,5 s ÷ 2; no puede moverse, a mano). Gana reducción de daño 20/30/40/50/60 % y robo de vida 20/25/30/35/40 % mientras dura (automático). Corta al enemigo más herido en radio 3 casillas / 500 u. (2,5 redondeado) hasta 6 veces + 1 por cada 40 % de vel. ataque bonus (automático el número si se conoce la vel. ataque). Cada corte: daño físico 2/7/12/17/22 % AD (12 % en rango 3, ±0,05; sin base plana 10–18) aumentado 0–100 % según la vida faltante del objetivo (hasta ×2; automático si se conoce la vida). Aplica robo de vida (automático). Los efectos de impacto/ataque se aplican al 12–24 % según vida faltante (a mano). 200 % a monstruos (a mano). Se puede terminar antes (botón «Terminar»; automático). Se acaba si lanza otra habilidad (a mano). Puede criticar (a mano)."
+    },
+    "R": {
+      "name": "Banquete infinito",
+      "description": "Pasiva: cada AA inflige daño verdadero adicional 3 % AD bonus (sin base plana 2/4/6; el 3 % se mantiene en todos los rangos, sin +0,1/rango por ser un ratio muy pequeño) y genera una marca 3 t. (5 s ÷ 2) en ese objetivo que aumenta el mismo valor por golpe (automático, sin tope; tope 8 contra monstruos épicos a mano). Los derribos de campeón dejan un Coral del Vacío 8 t. (15 s ÷ 2; automático al derribar campeón/jugador; monstruos épicos a mano si no cuentan como campeón). Activa (requiere un coral): consume todos los corales, concede 1 Lavanda por coral (automático), Ralentización 25 % 1 t. (el ramp 25–96 % en 1 s ÷ 2 queda a mano) y explosión de daño verdadero en radio 3 casillas / 500 u. (2,5 redondeado): 150/160/170 % AP (150 % en rango 1, +0,1/rango) + 20 % de la vida faltante (sin base plana 150/200/250; automático). Luego Forma verdadera 23 t. (45 s ÷ 2) / 45 t. (90 s ÷ 2) / hasta la muerte con 0 / 40 / 80 acumulaciones de Lavanda (automático): +20/50/80 PV (100/250/400 ÷ 5, sin redondear) + 150/160/170 % AD bonus y AP, y +6/13/20 % vel. ataque total (automático). El bonus de alcance 25/75/125 u. (0,13/0,38/0,63 casillas) y el tamaño (a mano). Q puede atravesar terreno (a mano). Si ya está en forma, refresca la duración y cura 20/50/80 PV + 150/160/170 % AD bonus y AP (automático). Coral mejorado y Rémoras del Vacío (a mano). Se pierde al morir (a mano)."
+    }
+  },
+  "Ezreal": {
+    "P": {
+      "name": "Fuerza de hechizo naciente",
+      "description": "Al acertar a un enemigo con una habilidad: +1 acumulación de Fuerza de hechizo naciente por enemigo alcanzado (máx. 5; 3 t., 6 s ÷ 2; se refresca; automático, también si el escudo de hechizos bloquea el daño o la habilidad no inflige daño). Cada acumulación: +10 % vel. ataque (hasta +50 %; automático). No escala por nivel (no usa tramos 1/6/11/16)."
+    },
+    "Q": {
+      "name": "Disparo místico",
+      "description": "Disparo en línea (alcance 6 casillas / 1200 u.; ancho ~1 casilla / 120 u.) al primer enemigo: daño físico 120/125/130/135/140 % AD (130 % en rango 3, ±0,05) + 30/35/40/45/50 % AP (40 % en rango 3, ±0,05; sin base plana 20–120; automático). Aplica efectos de impacto y robo de vida (automático; on-attack a mano). Si acierta, en LoL reduce 1,5 s el CD de todas sus habilidades (incluida esta); aquí no hay CD de habilidades, a mano."
+    },
+    "W": {
+      "name": "Flujo de esencia",
+      "description": "Orbe en línea (alcance 6 casillas / 1200 u.; ancho ~1 casilla / 160 u.) que marca al primer campeón, monstruo épico o estructura 2 t. (4 s ÷ 2; automático). El siguiente AA o habilidad contra el marcado detona la marca: daño mágico 90/95/100/105/110 % AD bonus (100 % en rango 3, ±0,05) + 80/85/90/95/100 % AP (90 % en rango 3, ±0,05; sin base plana 80–300; automático). Si la detona una habilidad, restaura 30 de maná (60 ÷ 2) más el coste de esa habilidad (automático). El orbe en sí no hace daño. Esta habilidad no detona su propia marca."
+    },
+    "E": {
+      "name": "Alteración arcana",
+      "description": "Parpadeo hasta 2 casillas / 475 u. (2,375 redondeado; el desplazamiento a mano) y dispara un proyectil al enemigo más cercano en 4 casillas / 750 u. (3,75 redondeado): daño mágico 50/55/60/65/70 % AD bonus (60 % en rango 3, ±0,05) + 65/70/75/80/85 % AP (75 % en rango 3, ±0,05; sin base plana 80–280; automático). Prioriza al marcado por Flujo de esencia y lo revela 1 t. (1 s ÷ 2, mín. 1; a mano la revelación y la prioridad si hay varios)."
+    },
+    "R": {
+      "name": "Andanada certera",
+      "description": "Línea global (ancho 2 casillas / 320 u.; la trayectoria a mano): daño mágico 100/110/120 % AD bonus (100 % en la wiki en todos los rangos, +0,1/rango) + 110/120/130 % AP (110 % en rango 1, +0,1/rango; sin base plana 350–750; automático). En la wiki los súbditos y monstruos no épicos tienen menos daño de base (150–300) con los mismos ratios; al omitir bases el recorte no queda en el motor (a mano si se quiere aplicar). Otorga visión breve a su paso (a mano)."
+    }
+  },
+  "Alistar": {
+    "P": {
+      "name": "Rugido triunfal",
+      "description": "Al aturdir o desplazar a un campeón enemigo con sus habilidades: +1 acumulación de Rugido triunfal por campeón (máx. 7; no caducan en un combate típico, 99 t.; automático; no suma si el control falla, p. ej. escudo de hechizos o inmunidad). Al llegar a 7, consume todas y cura al portador un 5 % de su vida máx. y a los campeones aliados cercanos un 7 % de la suya (radio 5 casillas / 1000 u.; automático a todos los aliados del bando, filtrar a mano si alguno está fuera). Tras rugir, intervalo de 2 t. (3 s ÷ 2) en el que aún se pueden ganar acumulaciones; si llega a 7 durante el intervalo, ruge cuando acabe (a mano). También +1 si muere un súbdito o monstruo no épico cercano, +7 si muere un campeón o monstruo épico cercano (a mano). Al morir pierde todas las acumulaciones (a mano). Sin ratio de AP (cura % de vida máx., no plana ÷5)."
+    },
+    "Q": {
+      "name": "Pulverización",
+      "description": "Golpea el suelo en disco (radio 2 casillas / 375 u.; 1,875 redondeado): daño mágico 70/75/80/85/90 % AP (80 % en rango 3, ±0,05; sin base plana 60–220; automático). Lanza al aire 1 t. (1 s ÷ 2, mín. 1; automático). En la wiki aturde y lanza al aire a la vez 1 s; el aturdimiento simultáneo, a mano si se quiere el segundo estado. Se puede cargar durante Testarazo (a mano)."
+    },
+    "W": {
+      "name": "Testarazo",
+      "description": "Embestida al objetivo (alcance 3 casillas / 650 u.; 3,25 redondeado; el desplazamiento a mano): si llega a 2 casillas / 400 u., daño mágico 90/95/100/105/110 % AP (100 % en rango 3, ±0,05; sin base plana 55–275; automático), aturdimiento 1 t. (0,75 s ÷ 2, mín. 1; automático) y empuje 4 casillas / 700 u. (3,5 redondeado; a mano; duración del empuje 1 t. / 0,5 s ÷ 2). El combo Testarazo + Pulverización reduce el empuje a 1 casilla / 200 u. (a mano). La inmunidad al desplazamiento no evita el aturdimiento (a mano)."
+    },
+    "E": {
+      "name": "Pisotear",
+      "description": "Durante 3 t. (5 s ÷ 2) queda en estado Pisotear (no bloquea la habilidad; fantasmal a mano) y pisa en disco (radio 2 casillas / 350 u.): en este motor, un pulso al lanzarla con el daño total 60/65/70/75/80 % AP (70 % en rango 3, ±0,05; no se usa el 7 % por tic para no dejar ratios negativos; sin bases planas 8–20 por tic / 80–200 total; automático). Si el pulso daña al menos a un campeón, +1 acumulación (máx. 5, duran 3 t.; automático). Los tics siguientes (cada 0,5 s) a mano (también las acumulaciones de esos tics). Al llegar a 5, arma el siguiente AA a un campeón 3 t. (6 s ÷ 2): aturdimiento 1 t. (automático) y termina Pisotear (automático). El daño mágico extra del AA potenciado (20–275 según nivel) se omite por ser base plana (a mano)."
+    },
+    "R": {
+      "name": "Voluntad inquebrantable",
+      "description": "Al usarla, limpia los controles de masas del portador (automático si el estado tiene un nombre de CC conocido; el resto a mano) y gana Voluntad inquebrantable 4 t. (7 s ÷ 2): reducción de daño 55/65/75 % (valores por rango, no es ratio AD/AP; automático). El daño verdadero no se reduce (a mano)."
+    }
+  },
+  "Maokai": {
+    "P": {
+      "name": "Absorción de magia",
+      "description": "El siguiente AA cura 4 / 6,6 / 9,2 / 11,8 % de la vida máx. (tramos 1/6/11/16; en la wiki 4–12,8 % lineal hasta el 18; automático, con poder de curación y escudos). CD 15 / 14 / 13 / 11 t. (30–20 s ÷ 2). Usar una habilidad quita 2 t. (4 s ÷ 2; automático). Si un Esqueje acierta a un campeón al detonar, otros 2 t. (automático; monstruo épico a mano). Si le pega una habilidad enemiga, 2 t. (botón «Le han lanzado una habilidad»; monstruo grande 1 t. a mano). No se dispara por encima del 95 % de vida máx. (automático). No se dispara contra estructuras ni si el AA falla por ceguera (a mano)."
+    },
+    "Q": {
+      "name": "Zarzal opresor",
+      "description": "Lanza una onda en línea (3 casillas / 600 u.): daño mágico 40/45/50/55/60 % AP (50 % en rango 3, ±0,05) + 2,5/3/3,5/4/4,5 % de la vida máx. del objetivo (sin base plana; automático). Ralentiza 99 % durante 1 t. (0,25 s ÷ 2, mín. 1; automático). A los enemigos cercanos (radio ~2 casillas / 325 u.) también los aturde 1 t. (0,5 s ÷ 2) y los empuja ~2 casillas (300 u.) (aturdimiento y empuje a mano). El daño plano extra a monstruos va a mano."
+    },
+    "W": {
+      "name": "Avance retorcido",
+      "description": "Carga hacia un enemigo (alcance 3 casillas / 525 u.) y queda intocable durante la carga (a mano; no se pone estado de 1 t.). Al llegar: daño mágico 30/35/40/45/50 % AP (40 % en rango 3, ±0,05; sin base plana) y Enraizamiento 1 t. (1–1,4 s ÷ 2 → 1 en todos los rangos; automático). Si el objetivo se aleja demasiado o está intocable al llegar, no aplica (a mano)."
+    },
+    "E": {
+      "name": "Lanzamiento de pimpollo",
+      "description": "Lanza un Esqueje al suelo (alcance 6 casillas / 1100 u.; 5,5 redondeado). Queda 15 t. (30 s ÷ 2) y se detona con el botón «Detonar» (perseguir 2 t. / 2,5 s ÷ 2 y el movimiento van a mano). Al detonar, explosión (radio ~1 casilla / 250 u.): daño mágico 15/20/25/30/35 % AP (25 % en rango 3, ±0,05) + 5 % de la vida bonus del portador (automático) y ralentiza 45 % durante 1 t. (2 s ÷ 2). Si se coloca en un matorral: dura 15 t. más 1,5 % de vida bonus, daño doble en 3 pulsos, ralentización extra y revelar 2 t. (3 s ÷ 2), todo a mano. Acertar a un campeón al detonar quita 2 t. al CD de Absorción de magia (además de los 2 t. por lanzar E)."
+    },
+    "R": {
+      "name": "Garras de la naturaleza",
+      "description": "Invoca un muro de zarzas en línea (alcance real 15 casillas / 3000 u.; el área del tablero pinta 10, límite 21×21). Daño mágico 75/85/95 % AP (wiki 75 % +0,1 por rango, sin base plana) y Enraizamiento 1–2 t. según la distancia recorrida (0,75–2,25 s ÷ 2; 1 t. automático, el segundo a mano si ha viajado lejos). Al acertar a un campeón, gana 40/50/60 % de SPE durante 1 t. (2 s ÷ 2; automático al usarla). El avance del muro y que cada zarza se detenga al chocar van a mano."
+    }
+  },
+  "Samira": {
+    "P": {
+      "name": "Impulso temerario",
+      "description": "Los AA y las habilidades que dañan a un campeón enemigo con un golpe distinto al anterior generan 1 de Estilo en esta pasiva (máx. 6, 3 t., se refresca; grados E–S). Cada carga da 2,75/3/3,25/3,5% de vel. movimiento según nivel (1/6/11/16), hasta 16,5/18/19,5/21% (a mano la vel. movimiento). Con 6 (S) se puede usar Gatillo infernal. A 1 casilla ataca con la espada (sin proyectil) y, junto con Giro de espada, Carrera salvaje y el tajo/explosivos de Clase, inflige daño mágico bonus (~3,5/5,8/8,1/10,4% AD en esos tramos), hasta el doble según la vida faltante del objetivo (a mano). Contra un enemigo inmovilizado, el AA dispara 6 proyectiles (17% AD cada uno, con robo de vida; a mano); si está un poco fuera de rango, Samira da un dash hasta su alcance. Si el objetivo está lanzado, lo vuelve a lanzar (1 t.). Mismo objetivo: 5 t. de inmunidad."
+    },
+    "Q": {
+      "name": "Clase",
+      "description": "Disparo en línea (5 casillas) al primer enemigo. Si hay un enemigo a 2 casillas o menos delante, en su lugar hace un tajo en cono (a mano el área). Si se lanza durante Carrera salvaje, deja explosivos en la estela que detonan al terminar el dash (a mano). Puede criticar y aplica robo de vida al 100% de eficacia (la wiki lo da al 100%; el omnivampirismo también cura). El disparo es un proyectil (se puede destruir; el tajo y los explosivos no)."
+    },
+    "W": {
+      "name": "Giro de espada",
+      "description": "Gira la espada 1 t. y destroza los proyectiles enemigos en el área (a mano). Dos tajos (el daño de la ficha es por tajo): el primero al instante y el segundo al acabar. Durante el giro no puede hacer AA ni lanzar Clase. Gatillo infernal corta el efecto (sin el segundo tajo)."
+    },
+    "E": {
+      "name": "Carrera salvaje",
+      "description": "Dash de 3 casillas hacia un enemigo o estructura (a mano el desplazamiento), daño mágico a quienes atraviesa. Gana velocidad de ataque 3 t. Un derribo en 2 t. tras dañar a un campeón reinicia Carrera salvaje (a mano; en este sistema la E está bloqueada mientras dura el bonus de vel. ataque). Se puede lanzar Clase e Gatillo infernal durante el dash."
+    },
+    "R": {
+      "name": "Gatillo infernal",
+      "description": "Requiere rango S (6 de Estilo de Impulso temerario; las gasta al lanzarla). Durante 1 t. dispara a los enemigos cercanos (hasta 10 disparos; el daño de la ficha es por disparo, puede criticar y aplica robo de vida al 100% de eficacia —la wiki lo da al 100%; el omnivampirismo también cura) y pierde 30% de vel. movimiento (automático). Hace falta un enemigo cercano para lanzarla. Durante el efecto no puede hacer AA ni lanzar Clase o Giro de espada. El CC que interrumpe o el desarmado lo cancelan (a mano)."
+    }
+  },
+  "Smolder": {
+    "P": {
+      "name": "Entrenamiento dracónico",
+      "description": "Cargas permanentes (se guardan en la ficha del jugador, como las de ítems; en un campeón o NPC solo duran ese combate; sin tope práctico, máx. 999). +1 por cada campeón enemigo único alcanzado con una habilidad que dañe. Aliento supermegaabrasador también suma +1 por cada súbdito o monstruo que derribe (no por matar al campeón, que ya suma al acertar). Clases de vuelo solo da 1 por lanzamiento, aunque alcance a varios. ¡Achís! solo da 1 por campeón (el primer golpe). Las básicas hacen daño mágico extra según esas cargas (automático; no aplica el robo de vida de la Q, sí el omnivampirismo): Q 25/37/48/60% de las cargas en los tramos 1/6/11/16; explosiones de W 55%; cada bolt de E 8/10/12/14%. El extra por prob. de crítico (Q +0–10,5%, E +0–1,8%) va a mano. Si el objetivo de la Q muere en vuelo o por la quemadura, puede haber stacks extra (a mano)."
+    },
+    "Q": {
+      "name": "Aliento supermegaabrasador",
+      "description": "Escupe una bola de fuego al objetivo (alcance 3 casillas). Daño físico (sin base plana; 130% AD bonus en rango 3, ±0,05). Aplica efectos de impacto y robo de vida al 50% de eficacia (el omnivampirismo también cura). El daño mágico extra de Entrenamiento dracónico no recibe ese robo de vida. Si mata al menos a un objetivo, recupera 8 de maná (a mano). El daño aumenta con la prob. de crítico (a mano). Elige la fase según las cargas permanentes de Entrenamiento dracónico (no las gasta): Explosión (25), Descargas (125) o Quemadura (225). En el LoL las mejoras se acumulan (225 incluye explosión, descargas y quemadura); aquí cada fase se lanza por separado (a mano lo que falte)."
+    },
+    "W": {
+      "name": "¡Achís!",
+      "description": "Estornuda un glóbulo en línea (8 casillas, ancho 1). Daño físico del glóbulo (60% AD bonus en rango 3, ±0,05) y ralentiza 35% durante 1 t. Al acertar a un campeón, usa la fase Explosión. Solo el primer golpe a cada campeón da 1 carga permanente de Entrenamiento dracónico (automático si eliges bien los objetivos)."
+    },
+    "E": {
+      "name": "Clases de vuelo",
+      "description": "Vuela 1 t. (1,25 s ÷ 2): atraviesa terreno (fantasma) y gana 75% de vel. movimiento (automático). Mientras vuela, dispara hasta 5 (+1 por cada 100 cargas de Entrenamiento dracónico, hacia abajo) bolts al enemigo visible más cercano y más herido (prioridad campeones). El daño de la ficha es por bolt (30% AD total en rango 3, ±0,05) más el extra mágico de la P (8/10/12/14% de las cargas en tramos 1/6/11/16, automático; el extra por crítico va a mano). El número de bolts va a mano. Solo concede 1 carga permanente por lanzamiento. Se corta si lanza otra habilidad o recibe CC / autoinmovilización (a mano)."
+    },
+    "R": {
+      "name": "¡MAMIIII!",
+      "description": "Llama a su madre: una ola de fuego en línea. Alcance real 21 casillas (4250 u); el área del tablero solo pinta las 10 primeras (límite 21×21 del editor). Se cura al lanzarla (75% AD bonus + 75% AP, automático; sin base plana). Daño físico 100% AD bonus y 100% AP en rango 1 (+0,1 por rango). Usa la fase Centro si el objetivo está en el centro de la ola. Hace el 50% a súbditos y monstruos (a mano)."
+    }
+  },
+  "Urgot": {
+    "P": {
+      "name": "Articulaciones llameantes",
+      "description": "Seis patas-escopeta (60° cada una, círculo completo, radio 4 casillas). Cada una dispara una vez y entra en su propio CD (15/10/5/3 t. en los tramos 1/6/11/16; a nivel 18 en la wiki serían 2,5 s → 1 t.). El siguiente AA que acierte en el arco de una pata lista dispara un cono: 40/60/80/100% AD + 2/3,5/5/6% de la vida máx. del objetivo (físico, automático al AA si hay una pata lista; no aplica robo de vida, sí omnivampirismo). El cono y qué pata (orientación fija, no rota) van a mano. Tope contra monstruos a mano. Las patas no se disparan si el objetivo está muerto al impactar, si está ciego o si el AA lo bloquea un muro (a mano)."
+    },
+    "Q": {
+      "name": "Carga corrosiva",
+      "description": "Lanza un bidón al suelo (alcance 4 casillas). Tras un instante explota (radio 1 casilla): daño físico (70% AD total en rango 3, ±0,05, sin base plana) y ralentiza 45/50/55/60/65% durante 1 t. (1,25 s ÷ 2). Marca a los campeones alcanzados 3 t. para Purgar (solo uno a la vez; a mano)."
+    },
+    "W": {
+      "name": "Purgar",
+      "description": "Interruptor 2 t. (4 s ÷ 2); en rango 5 dura hasta desactivarlo (en la wiki es permanente al máximo). Coste 20/15/10/5/0. Mientras está activo: el número de ataques por turno pasa a 3 (automático; en la wiki es 3.0 de vel. de ataque fija). Dispara AA automáticos al enemigo más cercano (prioridad al marcado; a mano cada disparo, pulsa AA) al 17/22/27/32/37% AD (27% en rango 3, ±0,05; automático al AA), no pueden criticar (automático), aplican impacto al 50% y robo de vida (el 50% de impacto va a mano). Gana 40% de res. a ralentizaciones (automático) y pierde 125 de vel. movimiento (a mano; el equivalente en SPE no está claro). Fantasma contra súbditos, alcance ~2 casillas. En rangos 1–4, si no la desactivas, acaba sola a los 2 t. Otras habilidades (Q/E/R) cortan un instante el fuego (a mano)."
+    },
+    "E": {
+      "name": "Desdén",
+      "description": "Se da un escudo 2 t. (4 s ÷ 2): 125/130/135/140/145% AD bonus + 8,5/11/13,5/16/18,5% vida bonus (135% y 13,5% en rango 3, ±0,05; automático). Luego carga 2 casillas (sin atravesar terreno): daño físico 90/95/100/105/110% AD bonus (100% en rango 3, ±0,05) y aturde 1 t. a quienes atraviesa, apartándolos. Al chocar con un campeón se detiene, lo aturde 1 t. (1,5 s ÷ 2) y lo lanza 1 casilla a su espalda (sin atravesar terreno; a mano el desplazamiento). Se puede lanzar Purgar durante la carga (a mano)."
+    },
+    "R": {
+      "name": "Miedo más allá de la muerte",
+      "description": "Dispara un taladro en línea (alcance real 13 casillas / 2500 u.; el área del tablero pinta 10, límite 21×21). Al primer campeón: daño físico 50/60/70% AD bonus (wiki 50% y +0,1 por rango, sin base plana) y lastre 2 t. (4 s ÷ 2), revelado y ralentizado 0–75% según la vida que le falte (a mano la ralentización). Si está a ≤ 25% de vida máx. (o cae a ese umbral), Recast «Mercy» (1 vez, 2 t.): lo ejecuta (daño = lo que le queda, automático) y aplica Miedo 1 t. (75% de ralentización) a los cercanos que elijas (radio real 3 casillas). El canal de 1,5 s, el arrastre, la inmunidad a daño ajeno y que el recast no se interrumpa por CC van a mano. Si el taladro ya lo mataría, en la wiki se recastea solo (aquí: Recast cuando esté bajo el umbral)."
+    }
+  },
+  "Soraka": {
+    "P": {
+      "name": "Salvación",
+      "description": "Gana 90 % de velocidad de movimiento extra mientras se dirige hacia aliados cercanos que estén por debajo del 40 % de su vida máx. (radio 13 casillas / 2500 u.; 12,5 redondeado). Automático no: hay que aplicarlo a mano (dirección y «hacia» un aliado)."
+    },
+    "Q": {
+      "name": "Invocación estelar",
+      "description": "Llama una estrella al punto elegido (alcance 4 casillas / 800 u., radio ~1 casilla / 265 u.): daño mágico 25/30/35/40/45 % AP (35 % en rango 3, ±0,05; sin base plana; automático) y Ralentización 30 % 1 t. (1,5 s ÷ 2; automático). Si acierta a al menos un campeón, Rejuvenation 2 t. (2,5 s ÷ 2): cura inmediata 12/15/18/21/24 (60–120 LoL ÷ 5, sin redondear) + 20/25/30/35/40 % AP (30 % en rango 3, ±0,05; automático; en la wiki es cura a lo largo de 2,5 s, aquí se aplica el total de una vez) y +20/22,5/25/27,5/30 % SPE (automático). Mientras tenga Rejuvenation, Inyección astral también se la da al aliado (a mano)."
+    },
+    "W": {
+      "name": "Inyección astral",
+      "description": "Cura a un aliado (alcance 3 casillas / 550 u.; 2,75 redondeado): 18/22/26/30/34 (90–170 LoL ÷ 5, sin redondear) + 40/45/50/55/60 % AP (50 % en rango 3, ±0,05; automático). Cuesta 20/23/25/28/30 maná (40–60 ÷ 2) y 10 % de la vida máx. propia (el % no se divide; automático; no baja de 1 PV). No se puede usar por debajo del 5 % de vida máx. (automático). No se lanza a sí misma (a mano). Si tiene Rejuvenation, el coste de vida se reduce 80/85/90/95/100 % (queda 2/1,5/1/0,5/0 %; a mano) y el aliado también gana Rejuvenation 2 t. (a mano)."
+    },
+    "E": {
+      "name": "Equinoccio",
+      "description": "Crea una zona (alcance 5 casillas / 925 u., radio ~1 casilla / 260 u.): al colocar, daño mágico 30/35/40/45/50 % AP (40 % en rango 3, ±0,05; sin base plana) y Silencio 1 t. (1,5 s ÷ 2; automático). La zona dura 1 t.; «Detonar» (quienes sigan dentro, a mano) aplica el mismo daño otra vez y Enraizamiento 1 t. (1–2 s ÷ 2 → 1 en todos los rangos; automático)."
+    },
+    "R": {
+      "name": "Plegaria",
+      "description": "Cura global a sí misma y a todos los aliados (automático): 30/50/70 (150/250/350 LoL ÷ 5, sin redondear) + 50/60/70 % AP (50 % en rango 1, +0,1/rango). Si el objetivo está por debajo del 40 % de su vida máx., la cura es ×1,5 (45/75/105 + 75/85/95 % AP; automático, con poder de curación y escudos)."
+    }
+  }
+}
