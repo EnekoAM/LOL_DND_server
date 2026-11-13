@@ -14,5 +14,6 @@
     "isolatedModules": true,
     "types": ["node"]
   },
-  "include": ["src", "scripts"]
+  "include": ["src", "scripts"],
+  "exclude": ["scripts/test-mechanics-roundtrip.ts", "scripts/test-item-bonus-roundtrip.ts"]
 }

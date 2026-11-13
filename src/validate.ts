@@ -775,6 +775,9 @@ export type ChampionAbilityDamage = {
   adSource?: 'total' | 'bonus';
   apSource?: 'total' | 'bonus';
   damageBonus?: number;
+  hp?: number[];
+  hpSource?: 'max' | 'current' | 'missing' | 'bonus';
+  hpFrom?: 'target' | 'self';
 };
 
 export type ChampionAbilityEffect = {
@@ -817,7 +820,15 @@ export type ChampionAbility = {
 export type ChampionAbilityMechanics = {
   /** reducePerChampionHit: cada campeón enemigo alcanzado (AA / habilidad) quita N turnos a la recarga. */
   charges?: { start: number; max: number; recharge: number[]; reducePerChampionHit?: number };
-  stacks?: { turns: number; max: number; required?: number };
+  stacks?: { turns: number; max: number; required?: number; onAa?: boolean; onAbilityHit?: boolean; onChampionTakedown?: boolean; onNonChampionKill?: boolean; stat?: string; perStack?: number[]; perTarget?: boolean; requiresDamage?: boolean; onChampionCc?: boolean; consumeAtMax?: boolean; onMaxCooldown?: number; onMaxHeal?: { selfRatios?: { stat: CastPoolStat; values: number[] }[]; allyRatios?: { stat: CastPoolStat; values: number[] }[]; alliesToo?: boolean; flat?: number[]; flatByLevel?: boolean }; armArmedAaAtMax?: boolean; armArmedAaTurns?: number; onMaxStatus?: { name?: string; stat?: string; amount?: number; pct?: number } };
+  requireStacks?: { from: string; count: number; consume?: boolean };
+  permanentStacks?: { onAbilityChampionHit?: boolean; onTakedown?: boolean; takedownChampion?: number; takedownOther?: number; stat?: string; perStack?: number[]; byLevel?: boolean };
+  grantPermanent?: { from: string; maxPerCast?: number; onKill?: boolean; perConsumedStack?: boolean };
+  stackDamage?: { from: string; pct: number[]; type?: 'physical' | 'magic' | 'true'; byLevel?: boolean };
+  sectorShots?: { count: number; cooldown: number[]; byLevel?: boolean; trigger?: 'aa' | 'cast' | 'both'; gap?: number[]; labels?: string[] };
+  toggle?: { turns: number[]; fixedAttacks?: number };
+  execute?: { hpPct: number; fear?: { name: string; turns: number; value?: number } };
+  lifeSteal?: { efficacy: number };
   buff?: { turns: number; attackSpeed?: number[]; aaAd?: number[]; aaAppliesPassive?: boolean };
   appliesPassive?: boolean;
   aaCritBonus?: { pctPerFace: number };
@@ -829,19 +840,56 @@ export type ChampionAbilityMechanics = {
   learnedStats?: { stat: SheetStatKey; values: number[] }[];
   /** Escudo / curación al portador al usarla. */
   /** target ally = a los aliados elegidos; requiresHit = solo si alcanza a un enemigo; alliesToo = también a aliados que se elijan. */
-  castPool?: { kind: 'shield' | 'heal'; ratios: { stat: CastPoolStat; values: number[] }[]; turns?: number; perChampionHit?: { stat: CastPoolStat; pct: number }; target?: 'self' | 'ally'; requiresHit?: boolean; alliesToo?: boolean; flat?: number[]; flatByLevel?: boolean; delayTurns?: number };
+  castPool?: { kind: 'shield' | 'heal'; ratios: { stat: CastPoolStat; values: number[] }[]; turns?: number; perChampionHit?: { stat: CastPoolStat; pct: number }; target?: 'self' | 'ally'; requiresHit?: boolean; requiresChampionHit?: boolean; alliesToo?: boolean; allAllies?: boolean; flat?: number[]; flatByLevel?: boolean; delayTurns?: number; lowHpBonus?: { belowHpPct: number; multiplier: number }; requiresSelfInArea?: boolean; requiresSelfStatus?: boolean };
   /** Escudo automático (inicio del combate; al romperse CD por rango con decimales; vuelve solo). */
   innateShield?: { flat?: number[]; ratios: { stat: CastPoolStat; values: number[] }[]; cooldown: number[]; reducePerHit?: number };
   /** Se puede volver a lanzar times veces gratis durante turns turnos tras usarla. */
   recast?: { times: number; turns: number };
-  /** Al usarla, estado en sí mismo (bloquea la habilidad mientras dura). */
-  selfStatus?: { name: string; turns: number; value?: number };
+  /** Al usarla, estado en sí mismo (bloquea la habilidad mientras dura). stat/amount/pct: bonus mientras dura. */
+  selfStatus?: { name: string; turns: number; value?: number; stat?: SheetStatKey; amount?: number; pct?: number; pctValues?: number[]; amountValues?: number[]; fixedAttacks?: number; requiresChampionHit?: boolean; blocksRecast?: boolean; stats?: { stat: string; amount?: number; pct?: number; amountValues?: number[]; pctValues?: number[]; ratios?: { stat: CastPoolStat; values: number[] }[] }[]; damageReductionValues?: number[]; cancelable?: boolean; blocksAbility?: boolean; durationByStacks?: { from: string; thresholds: { stacks: number; turns: number }[] } };
+  empoweredAa?: { healHpPct: number[]; hpSource?: 'max' | 'current' | 'missing' | 'bonus'; cooldown: number[]; byLevel?: boolean; reduceOnAbility?: number; reduceOnStruck?: number; skipAboveHpPct?: number };
+  trap?: { turns: number; name?: string; applyOnPlace?: boolean; eruptEffect?: { name: string; values?: number[]; duration?: number[] }[]; eruptEffectName?: string; eruptEffectDuration?: number };
+  reduceEmpoweredAaOnHit?: number;
+  costHpMaxPct?: number;
+  costHpMinCurrentPct?: number;
   /** No gasta la acción de habilidad del turno. */
   noAction?: boolean;
   /** Efecto enemigo a todos los enemigos del combate. */
   allEnemies?: boolean;
   /** Estado propio rompible (escudo de hechizos): al romperse, bonus por tenerla aprendida × learnedMultiplier durante breakTurns. */
   spellShield?: { status: string; turns: number; breakTurns: number; learnedMultiplier: number };
+  isolated?: { multiplier?: number; slowPct?: number };
+  evolutions?: { slots: number[] };
+  evolve?: {
+    name: string;
+    description?: string;
+    effect?: { name: string; values?: number[]; duration?: number[] }[];
+    effectName?: string;
+    effectDuration?: number;
+    effectTarget?: 'self' | 'enemy';
+    recast?: { times: number; turns: number };
+    isolated?: { multiplier?: number; slowPct?: number };
+    selfStatus?: ChampionAbilityMechanics['selfStatus'];
+    recastOnTakedown?: { times: number; turns: number; max?: number; champion?: boolean };
+    armArmedAa?: boolean;
+  };
+  recastOnTakedown?: { times: number; turns: number; max?: number; champion?: boolean };
+  armedAa?: { type?: string; ad?: number[]; ap?: number[]; adSource?: 'total' | 'bonus'; apSource?: 'total' | 'bonus'; effectName?: string; effectDuration?: number; effect?: { name: string; values?: number[]; duration?: number[] }[]; endsSelfStatus?: boolean; turns?: number; hp?: number[]; hpSource?: 'max' | 'current' | 'missing' | 'bonus'; apPer100?: number; explodeFromLevel?: number };
+  armArmedAa?: boolean;
+  resistShred?: { pct: number[]; turns: number; armor?: boolean; mr?: boolean };
+  aaOnHit?: { hp?: number[]; hpSource?: 'max' | 'current' | 'missing' | 'bonus'; apPer100?: number; type?: string; ad?: number[]; adSource?: 'total' | 'bonus'; ap?: number[]; apSource?: 'total' | 'bonus'; always?: boolean; perTargetStacks?: { turns: number; max?: number } };
+  costStacks?: { amount: number; turns: number; max: number };
+  deathBurst?: { turns: number; name?: string; stat?: string; pct?: number; amount?: number };
+  damageLowHp?: { belowHpPct: number; multiplier: number; missingMaxBonusPct?: number };
+  onAbilityUse?: { turns: number; attackSpeed?: number[] };
+  resetSectorShots?: { from: string; count: number; requiresChampionHit?: boolean };
+  strikes?: { count: number[]; perBonusAtkSpe?: number };
+  mark?: { turns: number; detonateOn?: 'aa' | 'ability' | 'both'; damageOnDetonate?: boolean; refundMana?: { flat?: number[]; refundCost?: boolean } };
+  cleanse?: boolean;
+  returnStrike?: { type: 'true' | 'magic' | 'physical' };
+  takedownHeal?: { flat?: number[]; flatByLevel?: boolean; ratios?: { stat: CastPoolStat; values: number[] }[]; champion?: boolean };
+  levelThresholds?: { level: number; name?: string; rangeBonus?: number; aaWave?: { type?: 'magic' | 'true' | 'physical'; ad?: number[]; adSource?: 'total' | 'bonus'; ap?: number[]; apSource?: 'total' | 'bonus'; requiresMaxStacks?: boolean }; permanentMaxStacks?: boolean }[];
+  protect?: { name?: string; turns: number; damageReductionPct: number[]; target?: 'self' | 'ally' | 'allyOrSelf' };
 };
 
 const CAST_POOL_STATS = ['ad', 'bonusAd', 'baseAd', 'ap', 'hp', 'bonusHp', 'missingHp', 'armor', 'bonusArmor', 'mr', 'bonusMr', 'mana', 'bonusMana'] as const;
@@ -891,6 +939,136 @@ export function parseAbilityMechanics(value: unknown): ChampionAbilityMechanics 
     const max = mechanicsInt(stacks.max, 'mechanics.stacks.max', 1, 99);
     out.stacks = { turns: mechanicsInt(stacks.turns, 'mechanics.stacks.turns', 1, 99), max };
     if (stacks.required !== undefined && stacks.required !== null) out.stacks.required = mechanicsInt(stacks.required, 'mechanics.stacks.required', 1, max);
+    if (stacks.onAa === false) out.stacks.onAa = false;
+    if (stacks.onAbilityHit === true) out.stacks.onAbilityHit = true;
+    if (stacks.onChampionTakedown === true) out.stacks.onChampionTakedown = true;
+    if (stacks.onNonChampionKill === true) out.stacks.onNonChampionKill = true;
+    if (typeof stacks.stat === 'string' && stacks.stat.trim()) out.stacks.stat = stacks.stat.trim().slice(0, 40);
+    const perStack = mechanicsList(stacks.perStack, 'mechanics.stacks.perStack', 0, 100, false);
+    if (perStack) out.stacks.perStack = perStack;
+    if (stacks.perTarget === true) out.stacks.perTarget = true;
+    if (stacks.requiresDamage === false) out.stacks.requiresDamage = false;
+    if (stacks.onChampionCc === true) out.stacks.onChampionCc = true;
+    if (stacks.consumeAtMax === true) out.stacks.consumeAtMax = true;
+    if (stacks.onMaxCooldown !== undefined && stacks.onMaxCooldown !== null) out.stacks.onMaxCooldown = mechanicsInt(stacks.onMaxCooldown, 'mechanics.stacks.onMaxCooldown', 1, 99);
+    if (stacks.armArmedAaAtMax === true) out.stacks.armArmedAaAtMax = true;
+    if (stacks.armArmedAaTurns !== undefined && stacks.armArmedAaTurns !== null) out.stacks.armArmedAaTurns = mechanicsInt(stacks.armArmedAaTurns, 'mechanics.stacks.armArmedAaTurns', 1, 99);
+    const onMaxStatus = mechanicsObject(stacks.onMaxStatus, 'mechanics.stacks.onMaxStatus');
+    if (onMaxStatus) {
+      const status: NonNullable<NonNullable<ChampionAbilityMechanics['stacks']>['onMaxStatus']> = {};
+      if (typeof onMaxStatus.name === 'string' && onMaxStatus.name.trim()) status.name = onMaxStatus.name.trim().slice(0, 80);
+      if (typeof onMaxStatus.stat === 'string' && onMaxStatus.stat.trim()) status.stat = onMaxStatus.stat.trim().slice(0, 40);
+      if (typeof onMaxStatus.amount === 'number' && Number.isFinite(onMaxStatus.amount)) status.amount = onMaxStatus.amount;
+      if (typeof onMaxStatus.pct === 'number' && Number.isFinite(onMaxStatus.pct)) status.pct = onMaxStatus.pct;
+      if (status.stat || status.amount != null || status.pct != null) out.stacks.onMaxStatus = status;
+    }
+    const onMaxHeal = mechanicsObject(stacks.onMaxHeal, 'mechanics.stacks.onMaxHeal');
+    if (onMaxHeal) {
+      const parseHealRatios = (value: unknown, field: string): { stat: CastPoolStat; values: number[] }[] | undefined => {
+        if (value === undefined || value === null) return undefined;
+        if (!Array.isArray(value) || !value.length) return undefined;
+        const list: { stat: CastPoolStat; values: number[] }[] = [];
+        for (const [index, entry] of value.entries()) {
+          const row = mechanicsObject(entry, `${field}[${index}]`);
+          if (!row) continue;
+          const stat = typeof row.stat === 'string' ? row.stat.trim() : '';
+          if (stat !== 'hp' && stat !== 'ap' && stat !== 'ad' && stat !== 'bonusAd' && stat !== 'bonusAp') throw new HttpError(400, `${field}[${index}].stat no válido`);
+          const values = mechanicsList(row.values, `${field}[${index}].values`, 0, 1000, false);
+          if (!values) throw new HttpError(400, `${field}[${index}].values: pon los valores por rango`);
+          list.push({ stat: stat as CastPoolStat, values });
+        }
+        return list.length ? list : undefined;
+      };
+      const heal: NonNullable<NonNullable<ChampionAbilityMechanics['stacks']>['onMaxHeal']> = {};
+      const selfRatios = parseHealRatios(onMaxHeal.selfRatios, 'mechanics.stacks.onMaxHeal.selfRatios');
+      const allyRatios = parseHealRatios(onMaxHeal.allyRatios, 'mechanics.stacks.onMaxHeal.allyRatios');
+      if (selfRatios) heal.selfRatios = selfRatios;
+      if (allyRatios) heal.allyRatios = allyRatios;
+      if (onMaxHeal.alliesToo === true) heal.alliesToo = true;
+      const healFlat = mechanicsList(onMaxHeal.flat, 'mechanics.stacks.onMaxHeal.flat', 0, 100000, false);
+      if (healFlat) heal.flat = healFlat;
+      if (onMaxHeal.flatByLevel === true) heal.flatByLevel = true;
+      if (heal.selfRatios || heal.allyRatios || heal.flat) out.stacks.onMaxHeal = heal;
+    }
+  }
+  const requireStacks = mechanicsObject(source.requireStacks, 'mechanics.requireStacks');
+  if (requireStacks) {
+    const from = typeof requireStacks.from === 'string' ? requireStacks.from.trim().slice(0, 80) : '';
+    if (!from) throw new HttpError(400, 'mechanics.requireStacks.from: pon el nombre de la habilidad que tiene las cargas');
+    out.requireStacks = { from, count: mechanicsInt(requireStacks.count, 'mechanics.requireStacks.count', 1, 999) };
+    if (requireStacks.consume === false) out.requireStacks.consume = false;
+  }
+  const lifeSteal = mechanicsObject(source.lifeSteal, 'mechanics.lifeSteal');
+  if (lifeSteal) {
+    const efficacy = lifeSteal.efficacy ?? 100;
+    if (typeof efficacy !== 'number' || !Number.isFinite(efficacy) || efficacy < 0 || efficacy > 200) throw new HttpError(400, 'mechanics.lifeSteal.efficacy tiene que ser un número entre 0 y 200');
+    out.lifeSteal = { efficacy };
+  }
+  const permanentStacks = mechanicsObject(source.permanentStacks, 'mechanics.permanentStacks');
+  if (permanentStacks) {
+    out.permanentStacks = {};
+    if (permanentStacks.onAbilityChampionHit === false) out.permanentStacks.onAbilityChampionHit = false;
+    if (permanentStacks.onTakedown === true) out.permanentStacks.onTakedown = true;
+    if (permanentStacks.takedownChampion !== undefined && permanentStacks.takedownChampion !== null) out.permanentStacks.takedownChampion = mechanicsInt(permanentStacks.takedownChampion, 'mechanics.permanentStacks.takedownChampion', 1, 9);
+    if (permanentStacks.takedownOther !== undefined && permanentStacks.takedownOther !== null) out.permanentStacks.takedownOther = mechanicsInt(permanentStacks.takedownOther, 'mechanics.permanentStacks.takedownOther', 0, 9);
+    if (typeof permanentStacks.stat === 'string' && permanentStacks.stat.trim()) out.permanentStacks.stat = permanentStacks.stat.trim().slice(0, 40);
+    const perStack = mechanicsList(permanentStacks.perStack, 'mechanics.permanentStacks.perStack', 0, 100, false);
+    if (perStack) out.permanentStacks.perStack = perStack;
+    if (permanentStacks.byLevel === true) out.permanentStacks.byLevel = true;
+  }
+  const grantPermanent = mechanicsObject(source.grantPermanent, 'mechanics.grantPermanent');
+  if (grantPermanent) {
+    const from = typeof grantPermanent.from === 'string' ? grantPermanent.from.trim().slice(0, 80) : '';
+    if (!from) throw new HttpError(400, 'mechanics.grantPermanent.from: pon el nombre de la habilidad que tiene las cargas');
+    out.grantPermanent = { from };
+    if (grantPermanent.maxPerCast !== undefined && grantPermanent.maxPerCast !== null) out.grantPermanent.maxPerCast = mechanicsInt(grantPermanent.maxPerCast, 'mechanics.grantPermanent.maxPerCast', 1, 99);
+    if (grantPermanent.onKill === true) out.grantPermanent.onKill = true;
+    if (grantPermanent.perConsumedStack === true) out.grantPermanent.perConsumedStack = true;
+  }
+  const stackDamage = mechanicsObject(source.stackDamage, 'mechanics.stackDamage');
+  if (stackDamage) {
+    const from = typeof stackDamage.from === 'string' ? stackDamage.from.trim().slice(0, 80) : '';
+    if (!from) throw new HttpError(400, 'mechanics.stackDamage.from: pon el nombre de la habilidad que tiene las cargas');
+    const pct = mechanicsList(stackDamage.pct, 'mechanics.stackDamage.pct', 0, 999, false);
+    if (!pct) throw new HttpError(400, 'mechanics.stackDamage.pct: pon el % por rango');
+    out.stackDamage = { from, pct };
+    if (stackDamage.type !== undefined && stackDamage.type !== null && stackDamage.type !== 'magic') {
+      if (stackDamage.type !== 'physical' && stackDamage.type !== 'true') throw new HttpError(400, 'mechanics.stackDamage.type tiene que ser physical, magic o true');
+      out.stackDamage.type = stackDamage.type;
+    }
+    if (stackDamage.byLevel === true) out.stackDamage.byLevel = true;
+  }
+  const sectorShots = mechanicsObject(source.sectorShots, 'mechanics.sectorShots');
+  if (sectorShots) {
+    const cooldown = mechanicsList(sectorShots.cooldown, 'mechanics.sectorShots.cooldown', 1, 99, true);
+    if (!cooldown) throw new HttpError(400, 'mechanics.sectorShots.cooldown: pon los turnos de CD');
+    out.sectorShots = { count: mechanicsInt(sectorShots.count, 'mechanics.sectorShots.count', 2, 8), cooldown };
+    if (sectorShots.byLevel === true) out.sectorShots.byLevel = true;
+    if (sectorShots.trigger === 'cast' || sectorShots.trigger === 'both' || sectorShots.trigger === 'aa') out.sectorShots.trigger = sectorShots.trigger;
+    const gap = mechanicsList(sectorShots.gap, 'mechanics.sectorShots.gap', 0, 99, true);
+    if (gap) out.sectorShots.gap = gap;
+    if (Array.isArray(sectorShots.labels)) {
+      const labels = sectorShots.labels.filter((item): item is string => typeof item === 'string' && !!item.trim()).map(item => item.trim().slice(0, 20)).slice(0, 8);
+      if (labels.length) out.sectorShots.labels = labels;
+    }
+  }
+  const toggle = mechanicsObject(source.toggle, 'mechanics.toggle');
+  if (toggle) {
+    const turns = mechanicsList(toggle.turns, 'mechanics.toggle.turns', 0, 99, true);
+    if (!turns) throw new HttpError(400, 'mechanics.toggle.turns: pon la duración por rango (0 = hasta desactivar)');
+    out.toggle = { turns };
+    if (toggle.fixedAttacks !== undefined && toggle.fixedAttacks !== null) out.toggle.fixedAttacks = mechanicsInt(toggle.fixedAttacks, 'mechanics.toggle.fixedAttacks', 1, 99);
+  }
+  const execute = mechanicsObject(source.execute, 'mechanics.execute');
+  if (execute) {
+    out.execute = { hpPct: mechanicsInt(execute.hpPct, 'mechanics.execute.hpPct', 1, 99) };
+    const fear = mechanicsObject(execute.fear, 'mechanics.execute.fear');
+    if (fear) {
+      const name = typeof fear.name === 'string' ? fear.name.trim().slice(0, 80) : '';
+      if (!name) throw new HttpError(400, 'mechanics.execute.fear.name: pon el nombre del estado');
+      out.execute.fear = { name, turns: mechanicsInt(fear.turns, 'mechanics.execute.fear.turns', 1, 99) };
+      if (fear.value !== undefined && fear.value !== null) out.execute.fear.value = mechanicsInt(fear.value, 'mechanics.execute.fear.value', 1, 99);
+    }
   }
   const buff = mechanicsObject(source.buff, 'mechanics.buff');
   if (buff) {
@@ -946,21 +1124,159 @@ export function parseAbilityMechanics(value: unknown): ChampionAbilityMechanics 
     if (pool.target === 'ally') castPool.target = 'ally';
     else if (pool.target !== undefined && pool.target !== null && pool.target !== 'self') throw new HttpError(400, 'mechanics.castPool.target tiene que ser self o ally');
     if (pool.requiresHit === true) castPool.requiresHit = true;
+    if (pool.requiresChampionHit === true) castPool.requiresChampionHit = true;
+    if (pool.requiresSelfInArea === true) castPool.requiresSelfInArea = true;
+    if (pool.requiresSelfStatus === true) castPool.requiresSelfStatus = true;
     if (pool.alliesToo === true) castPool.alliesToo = true;
+    if (pool.allAllies === true) castPool.allAllies = true;
     const flat = mechanicsList(pool.flat, 'mechanics.castPool.flat', 0, 100000, false);
     if (flat) castPool.flat = flat;
     if (pool.flatByLevel === true) castPool.flatByLevel = true;
     if (pool.delayTurns !== undefined && pool.delayTurns !== null) castPool.delayTurns = mechanicsInt(pool.delayTurns, 'mechanics.castPool.delayTurns', 1, 99);
+    const lowHp = mechanicsObject(pool.lowHpBonus, 'mechanics.castPool.lowHpBonus');
+    if (lowHp) {
+      const belowHpPct = mechanicsInt(lowHp.belowHpPct, 'mechanics.castPool.lowHpBonus.belowHpPct', 1, 100);
+      const multiplier = typeof lowHp.multiplier === 'number' ? lowHp.multiplier : Number(lowHp.multiplier);
+      if (!Number.isFinite(multiplier) || multiplier <= 0 || multiplier > 10) throw new HttpError(400, 'mechanics.castPool.lowHpBonus.multiplier tiene que ser un número entre 0 (no incluido) y 10');
+      castPool.lowHpBonus = { belowHpPct, multiplier };
+    }
     if (ratios.length || castPool.perChampionHit || castPool.flat) out.castPool = castPool;
   }
   const recast = mechanicsObject(source.recast, 'mechanics.recast');
-  if (recast) out.recast = { times: mechanicsInt(recast.times, 'mechanics.recast.times', 1, 9), turns: mechanicsInt(recast.turns, 'mechanics.recast.turns', 1, 99) };
+  if (recast) out.recast = { times: mechanicsInt(recast.times, 'mechanics.recast.times', 1, 9), turns: mechanicsInt(recast.turns, 'mechanics.recast.turns', 0, 99) };
   const selfStatus = mechanicsObject(source.selfStatus, 'mechanics.selfStatus');
   if (selfStatus) {
     const name = typeof selfStatus.name === 'string' ? selfStatus.name.trim().slice(0, 60) : '';
     if (!name) throw new HttpError(400, 'mechanics.selfStatus.name: pon el nombre del estado');
     out.selfStatus = { name, turns: mechanicsInt(selfStatus.turns, 'mechanics.selfStatus.turns', 1, 99) };
     if (selfStatus.value !== undefined && selfStatus.value !== null) out.selfStatus.value = mechanicsInt(selfStatus.value, 'mechanics.selfStatus.value', 1, 999);
+    if (selfStatus.stat !== undefined && selfStatus.stat !== null && selfStatus.stat !== '') {
+      if (typeof selfStatus.stat !== 'string' || !(SHEET_STAT_KEYS as readonly string[]).includes(selfStatus.stat)) throw new HttpError(400, 'mechanics.selfStatus.stat no es una stat de la ficha');
+      out.selfStatus.stat = selfStatus.stat as SheetStatKey;
+      const amount = selfStatus.amount;
+      const pct = selfStatus.pct;
+      const okNum = (v: unknown) => typeof v === 'number' && Number.isFinite(v) && v !== 0 && Math.abs(v) <= 999;
+      if (amount !== undefined && amount !== null) {
+        if (!okNum(amount)) throw new HttpError(400, 'mechanics.selfStatus.amount tiene que ser un número distinto de 0 (máx. 999)');
+        out.selfStatus.amount = amount as number;
+      }
+      if (pct !== undefined && pct !== null) {
+        if (!okNum(pct)) throw new HttpError(400, 'mechanics.selfStatus.pct tiene que ser un número distinto de 0 (máx. 999)');
+        out.selfStatus.pct = pct as number;
+      }
+      if (out.selfStatus.amount == null && out.selfStatus.pct == null && selfStatus.pctValues == null && selfStatus.amountValues == null) throw new HttpError(400, 'mechanics.selfStatus: pon amount, pct o valores por rango');
+    }
+    if (selfStatus.fixedAttacks !== undefined && selfStatus.fixedAttacks !== null) out.selfStatus.fixedAttacks = mechanicsInt(selfStatus.fixedAttacks, 'mechanics.selfStatus.fixedAttacks', 1, 99);
+    const pctValues = mechanicsList(selfStatus.pctValues, 'mechanics.selfStatus.pctValues', -999, 999, false);
+    if (pctValues) out.selfStatus.pctValues = pctValues;
+    const amountValues = mechanicsList(selfStatus.amountValues, 'mechanics.selfStatus.amountValues', -999, 999, false);
+    if (amountValues) out.selfStatus.amountValues = amountValues;
+    if (selfStatus.requiresChampionHit === true) out.selfStatus.requiresChampionHit = true;
+    if (selfStatus.blocksRecast === true) out.selfStatus.blocksRecast = true;
+    if (selfStatus.cancelable === true) out.selfStatus.cancelable = true;
+    if (selfStatus.blocksAbility === false) out.selfStatus.blocksAbility = false;
+    const reduction = mechanicsList(selfStatus.damageReductionValues, 'mechanics.selfStatus.damageReductionValues', 0, 100, false);
+    if (reduction) out.selfStatus.damageReductionValues = reduction;
+    if (Array.isArray(selfStatus.stats)) {
+      out.selfStatus.stats = selfStatus.stats.slice(0, 8).map((entry: unknown, index: number) => {
+        const row = mechanicsObject(entry, `mechanics.selfStatus.stats[${index}]`) ?? {};
+        const stat = typeof row.stat === 'string' ? row.stat.trim().slice(0, 40) : '';
+        if (!stat) throw new HttpError(400, `mechanics.selfStatus.stats[${index}].stat es obligatorio`);
+        const parsed: NonNullable<NonNullable<ChampionAbilityMechanics['selfStatus']>['stats']>[number] = { stat };
+        if (row.amount !== undefined && row.amount !== null) {
+          if (typeof row.amount !== 'number' || !Number.isFinite(row.amount)) throw new HttpError(400, `mechanics.selfStatus.stats[${index}].amount no es un número`);
+          parsed.amount = row.amount;
+        }
+        if (row.pct !== undefined && row.pct !== null) {
+          if (typeof row.pct !== 'number' || !Number.isFinite(row.pct)) throw new HttpError(400, `mechanics.selfStatus.stats[${index}].pct no es un número`);
+          parsed.pct = row.pct;
+        }
+        const amountValues = mechanicsList(row.amountValues, `mechanics.selfStatus.stats[${index}].amountValues`, -99999, 99999, false);
+        if (amountValues) parsed.amountValues = amountValues;
+        const pctValues = mechanicsList(row.pctValues, `mechanics.selfStatus.stats[${index}].pctValues`, -999, 999, false);
+        if (pctValues) parsed.pctValues = pctValues;
+        if (Array.isArray(row.ratios)) {
+          parsed.ratios = row.ratios.slice(0, 6).map((ratio: unknown, ratioIndex: number) => {
+            const item = mechanicsObject(ratio, `mechanics.selfStatus.stats[${index}].ratios[${ratioIndex}]`) ?? {};
+            const values = mechanicsList(item.values, `mechanics.selfStatus.stats[${index}].ratios[${ratioIndex}].values`, -999, 999, false);
+            if (!values) throw new HttpError(400, `mechanics.selfStatus.stats[${index}].ratios[${ratioIndex}].values: pon los %`);
+            return { stat: castPoolStat(item.stat, `mechanics.selfStatus.stats[${index}].ratios[${ratioIndex}].stat`), values };
+          });
+        }
+        return parsed;
+      });
+    }
+    const durationBy = mechanicsObject(selfStatus.durationByStacks, 'mechanics.selfStatus.durationByStacks');
+    if (durationBy) {
+      const from = typeof durationBy.from === 'string' ? durationBy.from.trim().slice(0, 80) : '';
+      if (!from) throw new HttpError(400, 'mechanics.selfStatus.durationByStacks.from: pon el nombre de la habilidad');
+      if (!Array.isArray(durationBy.thresholds) || !durationBy.thresholds.length) throw new HttpError(400, 'mechanics.selfStatus.durationByStacks.thresholds: pon los umbrales');
+      const thresholds = durationBy.thresholds.slice(0, 8).map((entry: unknown, index: number) => {
+        const row = mechanicsObject(entry, `mechanics.selfStatus.durationByStacks.thresholds[${index}]`) ?? {};
+        return { stacks: mechanicsInt(row.stacks, `mechanics.selfStatus.durationByStacks.thresholds[${index}].stacks`, 0, 999), turns: mechanicsInt(row.turns, `mechanics.selfStatus.durationByStacks.thresholds[${index}].turns`, 0, 99) };
+      });
+      out.selfStatus.durationByStacks = { from, thresholds };
+    }
+    if (out.selfStatus.stat && out.selfStatus.amount == null && out.selfStatus.pct == null && !out.selfStatus.pctValues && !out.selfStatus.amountValues) {
+      throw new HttpError(400, 'mechanics.selfStatus: pon amount, pct o valores por rango');
+    }
+  }
+  const empoweredAa = mechanicsObject(source.empoweredAa, 'mechanics.empoweredAa');
+  if (empoweredAa) {
+    const healHpPct = mechanicsList(empoweredAa.healHpPct, 'mechanics.empoweredAa.healHpPct', 0, 100, false);
+    const cooldown = mechanicsList(empoweredAa.cooldown, 'mechanics.empoweredAa.cooldown', 1, 99, true);
+    if (!healHpPct) throw new HttpError(400, 'mechanics.empoweredAa.healHpPct: pon el % de cura por tramo o rango');
+    if (!cooldown) throw new HttpError(400, 'mechanics.empoweredAa.cooldown: pon el CD por tramo o rango');
+    out.empoweredAa = { healHpPct, cooldown };
+    if (empoweredAa.hpSource !== undefined && empoweredAa.hpSource !== null && empoweredAa.hpSource !== '') {
+      if (empoweredAa.hpSource !== 'max' && empoweredAa.hpSource !== 'current' && empoweredAa.hpSource !== 'missing' && empoweredAa.hpSource !== 'bonus') {
+        throw new HttpError(400, 'mechanics.empoweredAa.hpSource tiene que ser max, current, missing o bonus');
+      }
+      out.empoweredAa.hpSource = empoweredAa.hpSource;
+    }
+    if (empoweredAa.byLevel === true) out.empoweredAa.byLevel = true;
+    if (empoweredAa.reduceOnAbility !== undefined && empoweredAa.reduceOnAbility !== null) out.empoweredAa.reduceOnAbility = mechanicsInt(empoweredAa.reduceOnAbility, 'mechanics.empoweredAa.reduceOnAbility', 1, 99);
+    if (empoweredAa.reduceOnStruck !== undefined && empoweredAa.reduceOnStruck !== null) out.empoweredAa.reduceOnStruck = mechanicsInt(empoweredAa.reduceOnStruck, 'mechanics.empoweredAa.reduceOnStruck', 1, 99);
+    if (empoweredAa.skipAboveHpPct !== undefined && empoweredAa.skipAboveHpPct !== null) out.empoweredAa.skipAboveHpPct = mechanicsInt(empoweredAa.skipAboveHpPct, 'mechanics.empoweredAa.skipAboveHpPct', 1, 100);
+  }
+  const trap = mechanicsObject(source.trap, 'mechanics.trap');
+  if (trap) {
+    out.trap = { turns: mechanicsInt(trap.turns, 'mechanics.trap.turns', 1, 99) };
+    const trapName = typeof trap.name === 'string' ? trap.name.trim().slice(0, 60) : '';
+    if (trapName) out.trap.name = trapName;
+    if (trap.applyOnPlace === true) out.trap.applyOnPlace = true;
+    const eruptName = typeof trap.eruptEffectName === 'string' ? trap.eruptEffectName.trim().slice(0, 80) : '';
+    if (eruptName) out.trap.eruptEffectName = eruptName;
+    if (trap.eruptEffectDuration !== undefined && trap.eruptEffectDuration !== null) {
+      out.trap.eruptEffectDuration = mechanicsInt(trap.eruptEffectDuration, 'mechanics.trap.eruptEffectDuration', 1, 99);
+    }
+    if (Array.isArray(trap.eruptEffect) && trap.eruptEffect.length) {
+      out.trap.eruptEffect = trap.eruptEffect.slice(0, 8).map((entry: unknown, index: number) => {
+        const effect = mechanicsObject(entry, `mechanics.trap.eruptEffect[${index}]`) ?? {};
+        const name = typeof effect.name === 'string' ? effect.name.trim().slice(0, 80) : '';
+        if (!name) throw new HttpError(400, `mechanics.trap.eruptEffect[${index}].name es obligatorio`);
+        const parsed: { name: string; values?: number[]; duration?: number[] } = { name };
+        const values = mechanicsList(effect.values, `mechanics.trap.eruptEffect[${index}].values`, -999, 999, false);
+        if (values) parsed.values = values;
+        const duration = mechanicsList(effect.duration, `mechanics.trap.eruptEffect[${index}].duration`, 0, 99, true);
+        if (duration) parsed.duration = duration;
+        return parsed;
+      });
+      if (!out.trap.eruptEffectName) out.trap.eruptEffectName = out.trap.eruptEffect[0].name;
+      if (out.trap.eruptEffectDuration == null) {
+        const first = out.trap.eruptEffect[0].duration?.[0];
+        if (typeof first === 'number') out.trap.eruptEffectDuration = first;
+      }
+    }
+  }
+  if (source.reduceEmpoweredAaOnHit !== undefined && source.reduceEmpoweredAaOnHit !== null) {
+    out.reduceEmpoweredAaOnHit = mechanicsInt(source.reduceEmpoweredAaOnHit, 'mechanics.reduceEmpoweredAaOnHit', 1, 99);
+  }
+  if (source.costHpMaxPct !== undefined && source.costHpMaxPct !== null) {
+    out.costHpMaxPct = mechanicsInt(source.costHpMaxPct, 'mechanics.costHpMaxPct', 1, 100);
+  }
+  if (source.costHpMinCurrentPct !== undefined && source.costHpMinCurrentPct !== null) {
+    out.costHpMinCurrentPct = mechanicsInt(source.costHpMinCurrentPct, 'mechanics.costHpMinCurrentPct', 1, 100);
   }
   if (source.noAction === true) out.noAction = true;
   const innate = mechanicsObject(source.innateShield, 'mechanics.innateShield');
@@ -994,6 +1310,281 @@ export function parseAbilityMechanics(value: unknown): ChampionAbilityMechanics 
     if (typeof multiplier !== 'number' || !Number.isFinite(multiplier) || multiplier < 1 || multiplier > 10) throw new HttpError(400, 'mechanics.spellShield.learnedMultiplier tiene que ser un número entre 1 y 10');
     out.spellShield = { status, turns: mechanicsInt(shield.turns, 'mechanics.spellShield.turns', 1, 99), breakTurns: mechanicsInt(shield.breakTurns, 'mechanics.spellShield.breakTurns', 1, 99), learnedMultiplier: multiplier };
   }
+  const isolated = mechanicsObject(source.isolated, 'mechanics.isolated');
+  if (isolated) {
+    const iso: NonNullable<ChampionAbilityMechanics['isolated']> = {};
+    if (isolated.multiplier !== undefined && isolated.multiplier !== null) {
+      const multiplier = typeof isolated.multiplier === 'number' ? isolated.multiplier : Number(isolated.multiplier);
+      if (!Number.isFinite(multiplier) || multiplier <= 0 || multiplier > 10) throw new HttpError(400, 'mechanics.isolated.multiplier tiene que ser un número entre 0 (no incluido) y 10');
+      iso.multiplier = multiplier;
+    }
+    if (isolated.slowPct !== undefined && isolated.slowPct !== null) iso.slowPct = mechanicsInt(isolated.slowPct, 'mechanics.isolated.slowPct', 1, 99);
+    if (iso.multiplier != null || iso.slowPct != null) out.isolated = iso;
+  }
+  const evolutions = mechanicsObject(source.evolutions, 'mechanics.evolutions');
+  if (evolutions) {
+    const slots = mechanicsList(evolutions.slots, 'mechanics.evolutions.slots', 0, 9, true);
+    if (!slots) throw new HttpError(400, 'mechanics.evolutions.slots: pon los huecos por rango');
+    out.evolutions = { slots };
+  }
+  const parseRecast = (value: unknown, field: string): { times: number; turns: number; max?: number; champion?: boolean } => {
+    const rec = mechanicsObject(value, field) ?? {};
+    const parsed: { times: number; turns: number; max?: number; champion?: boolean } = { times: mechanicsInt(rec.times, `${field}.times`, 1, 9), turns: mechanicsInt(rec.turns, `${field}.turns`, 0, 99) };
+    if (rec.max !== undefined && rec.max !== null) parsed.max = mechanicsInt(rec.max, `${field}.max`, 1, 99);
+    if (rec.champion === true) parsed.champion = true;
+    return parsed;
+  };
+  const parseIsolated = (value: unknown, field: string): { multiplier?: number; slowPct?: number } | undefined => {
+    const src = mechanicsObject(value, field);
+    if (!src) return undefined;
+    const iso: { multiplier?: number; slowPct?: number } = {};
+    if (src.multiplier !== undefined && src.multiplier !== null) {
+      const multiplier = typeof src.multiplier === 'number' ? src.multiplier : Number(src.multiplier);
+      if (!Number.isFinite(multiplier) || multiplier <= 0 || multiplier > 10) throw new HttpError(400, `${field}.multiplier tiene que ser un número entre 0 (no incluido) y 10`);
+      iso.multiplier = multiplier;
+    }
+    if (src.slowPct !== undefined && src.slowPct !== null) iso.slowPct = mechanicsInt(src.slowPct, `${field}.slowPct`, 1, 99);
+    return iso.multiplier != null || iso.slowPct != null ? iso : undefined;
+  };
+  const parseEvolveEffect = (value: unknown, field: string): { name: string; values?: number[]; duration?: number[] }[] | undefined => {
+    if (value === undefined || value === null) return undefined;
+    if (!Array.isArray(value)) throw new HttpError(400, `${field} tiene que ser una lista`);
+    const effects: { name: string; values?: number[]; duration?: number[] }[] = [];
+    for (const item of value) {
+      const src = mechanicsObject(item, field) ?? {};
+      const name = typeof src.name === 'string' ? src.name.trim().slice(0, 80) : '';
+      if (!name) throw new HttpError(400, `${field}: cada efecto necesita un nombre`);
+      const effect: { name: string; values?: number[]; duration?: number[] } = { name };
+      const values = mechanicsList(src.values, `${field}.values`, -1000, 1000, false);
+      const duration = mechanicsList(src.duration, `${field}.duration`, 0, 99, true);
+      if (values) effect.values = values;
+      if (duration) effect.duration = duration;
+      effects.push(effect);
+    }
+    return effects.length ? effects : undefined;
+  };
+  const evolve = mechanicsObject(source.evolve, 'mechanics.evolve');
+  if (evolve) {
+    const name = typeof evolve.name === 'string' ? evolve.name.trim().slice(0, 80) : '';
+    if (!name) throw new HttpError(400, 'mechanics.evolve.name: pon el nombre de la evolución');
+    const ev: NonNullable<ChampionAbilityMechanics['evolve']> = { name };
+    if (typeof evolve.description === 'string' && evolve.description.trim()) ev.description = evolve.description.trim();
+    const evEffect = parseEvolveEffect(evolve.effect, 'mechanics.evolve.effect');
+    if (evEffect) ev.effect = evEffect;
+    if (typeof evolve.effectName === 'string' && evolve.effectName.trim()) ev.effectName = evolve.effectName.trim().slice(0, 80);
+    if (evolve.effectDuration !== undefined && evolve.effectDuration !== null) ev.effectDuration = mechanicsInt(evolve.effectDuration, 'mechanics.evolve.effectDuration', 0, 99);
+    if (evolve.effectTarget === 'enemy' || evolve.effectTarget === 'self') ev.effectTarget = evolve.effectTarget;
+    else if (evolve.effectTarget !== undefined && evolve.effectTarget !== null) throw new HttpError(400, 'mechanics.evolve.effectTarget tiene que ser self o enemy');
+    if (evolve.recast) ev.recast = parseRecast(evolve.recast, 'mechanics.evolve.recast');
+    const evIso = parseIsolated(evolve.isolated, 'mechanics.evolve.isolated');
+    if (evIso) ev.isolated = evIso;
+    if (evolve.recastOnTakedown) ev.recastOnTakedown = parseRecast(evolve.recastOnTakedown, 'mechanics.evolve.recastOnTakedown');
+    if (evolve.armArmedAa === true) ev.armArmedAa = true;
+    out.evolve = ev;
+  }
+  if (source.recastOnTakedown) out.recastOnTakedown = parseRecast(source.recastOnTakedown, 'mechanics.recastOnTakedown');
+  const armed = mechanicsObject(source.armedAa, 'mechanics.armedAa');
+  if (armed) {
+    const aa: NonNullable<ChampionAbilityMechanics['armedAa']> = {};
+    if (typeof armed.type === 'string' && armed.type.trim()) aa.type = armed.type.trim().slice(0, 40);
+    const ad = mechanicsList(armed.ad, 'mechanics.armedAa.ad', 0, 10, false);
+    const ap = mechanicsList(armed.ap, 'mechanics.armedAa.ap', 0, 10, false);
+    if (ad) aa.ad = ad;
+    if (ap) aa.ap = ap;
+    if (armed.adSource === 'bonus' || armed.adSource === 'total') aa.adSource = armed.adSource;
+    if (armed.apSource === 'bonus' || armed.apSource === 'total') aa.apSource = armed.apSource;
+    if (typeof armed.effectName === 'string' && armed.effectName.trim()) aa.effectName = armed.effectName.trim().slice(0, 80);
+    if (armed.effectDuration !== undefined && armed.effectDuration !== null) aa.effectDuration = mechanicsInt(armed.effectDuration, 'mechanics.armedAa.effectDuration', 1, 99);
+    const aaEffect = parseEvolveEffect(armed.effect, 'mechanics.armedAa.effect');
+    if (aaEffect) aa.effect = aaEffect;
+    if (armed.endsSelfStatus === true) aa.endsSelfStatus = true;
+    if (armed.turns !== undefined && armed.turns !== null) aa.turns = mechanicsInt(armed.turns, 'mechanics.armedAa.turns', 1, 99);
+    const armedHp = mechanicsList(armed.hp, 'mechanics.armedAa.hp', 0, 100, false);
+    if (armedHp) aa.hp = armedHp;
+    if (armed.hpSource === 'max' || armed.hpSource === 'current' || armed.hpSource === 'missing' || armed.hpSource === 'bonus') aa.hpSource = armed.hpSource;
+    if (armed.apPer100 !== undefined && armed.apPer100 !== null) {
+      const per = armed.apPer100;
+      if (typeof per !== 'number' || !Number.isFinite(per) || per < 0 || per > 100) throw new HttpError(400, 'mechanics.armedAa.apPer100 tiene que ser un número entre 0 y 100');
+      aa.apPer100 = per;
+    }
+    if (armed.explodeFromLevel !== undefined && armed.explodeFromLevel !== null) aa.explodeFromLevel = mechanicsInt(armed.explodeFromLevel, 'mechanics.armedAa.explodeFromLevel', 1, 20);
+    if (!aa.ad && !aa.ap && !aa.effectName && !aa.effect && !aa.hp && aa.apPer100 == null) throw new HttpError(400, 'mechanics.armedAa: pon daño, % de vida o un estado');
+    out.armedAa = aa;
+  }
+  if (source.armArmedAa === true) out.armArmedAa = true;
+  const shred = mechanicsObject(source.resistShred, 'mechanics.resistShred');
+  if (shred) {
+    const pct = mechanicsList(shred.pct, 'mechanics.resistShred.pct', 1, 99, false);
+    if (!pct) throw new HttpError(400, 'mechanics.resistShred.pct: pon el % por rango');
+    const resistShred: NonNullable<ChampionAbilityMechanics['resistShred']> = { pct, turns: mechanicsInt(shred.turns, 'mechanics.resistShred.turns', 1, 99) };
+    if (shred.armor === false) resistShred.armor = false;
+    if (shred.mr === false) resistShred.mr = false;
+    out.resistShred = resistShred;
+  }
+  const aaOnHit = mechanicsObject(source.aaOnHit, 'mechanics.aaOnHit');
+  if (aaOnHit) {
+    const onHit: NonNullable<ChampionAbilityMechanics['aaOnHit']> = {};
+    const hp = mechanicsList(aaOnHit.hp, 'mechanics.aaOnHit.hp', 0, 100, false);
+    if (hp) onHit.hp = hp;
+    if (aaOnHit.hpSource === 'max' || aaOnHit.hpSource === 'current' || aaOnHit.hpSource === 'missing' || aaOnHit.hpSource === 'bonus') onHit.hpSource = aaOnHit.hpSource;
+    if (aaOnHit.apPer100 !== undefined && aaOnHit.apPer100 !== null) {
+      const per = typeof aaOnHit.apPer100 === 'number' ? aaOnHit.apPer100 : Number(aaOnHit.apPer100);
+      if (!Number.isFinite(per) || per < 0 || per > 100) throw new HttpError(400, 'mechanics.aaOnHit.apPer100 tiene que ser un número entre 0 y 100');
+      onHit.apPer100 = per;
+    }
+    if (typeof aaOnHit.type === 'string' && aaOnHit.type.trim()) onHit.type = aaOnHit.type.trim().slice(0, 40);
+    const ad = mechanicsList(aaOnHit.ad, 'mechanics.aaOnHit.ad', 0, 10, false);
+    if (ad) onHit.ad = ad;
+    if (aaOnHit.adSource === 'total' || aaOnHit.adSource === 'bonus') onHit.adSource = aaOnHit.adSource;
+    const onHitAp = mechanicsList(aaOnHit.ap, 'mechanics.aaOnHit.ap', 0, 10, false);
+    if (onHitAp) onHit.ap = onHitAp;
+    if (aaOnHit.apSource === 'total' || aaOnHit.apSource === 'bonus') onHit.apSource = aaOnHit.apSource;
+    if (aaOnHit.always === true) onHit.always = true;
+    const aaHitStacks = mechanicsObject(aaOnHit.perTargetStacks, 'mechanics.aaOnHit.perTargetStacks');
+    if (aaHitStacks) {
+      const perTarget: { turns: number; max?: number } = { turns: mechanicsInt(aaHitStacks.turns, 'mechanics.aaOnHit.perTargetStacks.turns', 1, 99) };
+      if (aaHitStacks.max !== undefined && aaHitStacks.max !== null) perTarget.max = mechanicsInt(aaHitStacks.max, 'mechanics.aaOnHit.perTargetStacks.max', 1, 99);
+      onHit.perTargetStacks = perTarget;
+    }
+    if (!onHit.hp && onHit.apPer100 == null && !onHit.ad && !onHit.ap) throw new HttpError(400, 'mechanics.aaOnHit: pon el % de vida, el % por 100 AP o el ratio de AD/AP');
+    out.aaOnHit = onHit;
+  }
+  const costStacks = mechanicsObject(source.costStacks, 'mechanics.costStacks');
+  if (costStacks) {
+    out.costStacks = {
+      amount: mechanicsInt(costStacks.amount, 'mechanics.costStacks.amount', 1, 999),
+      turns: mechanicsInt(costStacks.turns, 'mechanics.costStacks.turns', 1, 99),
+      max: mechanicsInt(costStacks.max, 'mechanics.costStacks.max', 1, 99),
+    };
+  }
+  const death = mechanicsObject(source.deathBurst, 'mechanics.deathBurst');
+  if (death) {
+    const burst: NonNullable<ChampionAbilityMechanics['deathBurst']> = { turns: mechanicsInt(death.turns, 'mechanics.deathBurst.turns', 1, 99) };
+    if (typeof death.name === 'string' && death.name.trim()) burst.name = death.name.trim().slice(0, 80);
+    if (typeof death.stat === 'string' && death.stat.trim()) {
+      if (!(SHEET_STAT_KEYS as readonly string[]).includes(death.stat)) throw new HttpError(400, 'mechanics.deathBurst.stat no es una stat de la ficha');
+      burst.stat = death.stat;
+    }
+    if (death.pct !== undefined && death.pct !== null) {
+      const pct = typeof death.pct === 'number' ? death.pct : Number(death.pct);
+      if (!Number.isFinite(pct) || pct === 0 || Math.abs(pct) > 999) throw new HttpError(400, 'mechanics.deathBurst.pct tiene que ser un número distinto de 0 (máx. 999)');
+      burst.pct = pct;
+    }
+    if (death.amount !== undefined && death.amount !== null) burst.amount = mechanicsInt(death.amount, 'mechanics.deathBurst.amount', -999, 999);
+    out.deathBurst = burst;
+  }
+  const low = mechanicsObject(source.damageLowHp, 'mechanics.damageLowHp');
+  if (low) {
+    const multiplier = typeof low.multiplier === 'number' ? low.multiplier : Number(low.multiplier);
+    if (!Number.isFinite(multiplier) || multiplier <= 0 || multiplier > 10) throw new HttpError(400, 'mechanics.damageLowHp.multiplier tiene que ser un número entre 0 (no incluido) y 10');
+    const damageLowHp: NonNullable<ChampionAbilityMechanics['damageLowHp']> = {
+      belowHpPct: mechanicsInt(low.belowHpPct, 'mechanics.damageLowHp.belowHpPct', 1, 100),
+      multiplier,
+    };
+    if (low.missingMaxBonusPct !== undefined && low.missingMaxBonusPct !== null) {
+      damageLowHp.missingMaxBonusPct = mechanicsInt(low.missingMaxBonusPct, 'mechanics.damageLowHp.missingMaxBonusPct', 1, 200);
+    }
+    out.damageLowHp = damageLowHp;
+  }
+  const onAbilityUse = mechanicsObject(source.onAbilityUse, 'mechanics.onAbilityUse');
+  if (onAbilityUse) {
+    const attackSpeed = mechanicsList(onAbilityUse.attackSpeed, 'mechanics.onAbilityUse.attackSpeed', 0, 999, false);
+    out.onAbilityUse = { turns: mechanicsInt(onAbilityUse.turns, 'mechanics.onAbilityUse.turns', 1, 99) };
+    if (attackSpeed) out.onAbilityUse.attackSpeed = attackSpeed;
+  }
+  const resetShots = mechanicsObject(source.resetSectorShots, 'mechanics.resetSectorShots');
+  if (resetShots) {
+    const from = typeof resetShots.from === 'string' ? resetShots.from.trim().slice(0, 80) : '';
+    if (!from) throw new HttpError(400, 'mechanics.resetSectorShots.from: pon el nombre de la habilidad');
+    out.resetSectorShots = { from, count: mechanicsInt(resetShots.count, 'mechanics.resetSectorShots.count', 1, 8) };
+    if (resetShots.requiresChampionHit === true) out.resetSectorShots.requiresChampionHit = true;
+  }
+  const strikes = mechanicsObject(source.strikes, 'mechanics.strikes');
+  if (strikes) {
+    const count = mechanicsList(strikes.count, 'mechanics.strikes.count', 1, 20, true);
+    if (!count) throw new HttpError(400, 'mechanics.strikes.count: pon el número de golpes');
+    out.strikes = { count };
+    if (strikes.perBonusAtkSpe !== undefined && strikes.perBonusAtkSpe !== null) out.strikes.perBonusAtkSpe = mechanicsInt(strikes.perBonusAtkSpe, 'mechanics.strikes.perBonusAtkSpe', 1, 200);
+  }
+  const mark = mechanicsObject(source.mark, 'mechanics.mark');
+  if (mark) {
+    const parsed: NonNullable<ChampionAbilityMechanics['mark']> = { turns: mechanicsInt(mark.turns, 'mechanics.mark.turns', 1, 99) };
+    if (mark.detonateOn === 'aa' || mark.detonateOn === 'ability' || mark.detonateOn === 'both') parsed.detonateOn = mark.detonateOn;
+    if (mark.damageOnDetonate === false) parsed.damageOnDetonate = false;
+    else parsed.damageOnDetonate = true;
+    const refund = mechanicsObject(mark.refundMana, 'mechanics.mark.refundMana');
+    if (refund) {
+      const refundMana: NonNullable<NonNullable<ChampionAbilityMechanics['mark']>['refundMana']> = {};
+      const flat = mechanicsList(refund.flat, 'mechanics.mark.refundMana.flat', 0, 999, false);
+      if (flat) refundMana.flat = flat;
+      if (refund.refundCost === true) refundMana.refundCost = true;
+      if (refundMana.flat || refundMana.refundCost) parsed.refundMana = refundMana;
+    }
+    out.mark = parsed;
+  }
+  if (source.cleanse === true) out.cleanse = true;
+  if (source.returnStrike && typeof source.returnStrike === 'object' && !Array.isArray(source.returnStrike)) {
+    const ret = source.returnStrike as Record<string, unknown>;
+    if (ret.type === 'true' || ret.type === 'magic' || ret.type === 'physical') out.returnStrike = { type: ret.type };
+    else throw new HttpError(400, 'mechanics.returnStrike.type tiene que ser true, magic o physical');
+  }
+  const takedownHeal = mechanicsObject(source.takedownHeal, 'mechanics.takedownHeal');
+  if (takedownHeal) {
+    const heal: NonNullable<ChampionAbilityMechanics['takedownHeal']> = {};
+    const flat = mechanicsList(takedownHeal.flat, 'mechanics.takedownHeal.flat', 0, 100000, false);
+    if (flat) heal.flat = flat;
+    if (takedownHeal.flatByLevel === true) heal.flatByLevel = true;
+    if (Array.isArray(takedownHeal.ratios) && takedownHeal.ratios.length) {
+      const ratios: { stat: CastPoolStat; values: number[] }[] = [];
+      for (const [index, entry] of takedownHeal.ratios.entries()) {
+        const row = mechanicsObject(entry, `mechanics.takedownHeal.ratios[${index}]`);
+        if (!row) continue;
+        const stat = typeof row.stat === 'string' ? row.stat.trim() : '';
+        if (stat !== 'hp' && stat !== 'ap' && stat !== 'ad' && stat !== 'bonusAd' && stat !== 'bonusAp') throw new HttpError(400, `mechanics.takedownHeal.ratios[${index}].stat no válido`);
+        const values = mechanicsList(row.values, `mechanics.takedownHeal.ratios[${index}].values`, 0, 1000, false);
+        if (!values) throw new HttpError(400, `mechanics.takedownHeal.ratios[${index}].values: pon los valores`);
+        ratios.push({ stat: stat as CastPoolStat, values });
+      }
+      if (ratios.length) heal.ratios = ratios;
+    }
+    if (takedownHeal.champion === true) heal.champion = true;
+    if (heal.flat || heal.ratios) out.takedownHeal = heal;
+  }
+  if (Array.isArray(source.levelThresholds) && source.levelThresholds.length) {
+    const list: NonNullable<ChampionAbilityMechanics['levelThresholds']> = [];
+    for (const [index, entry] of source.levelThresholds.entries()) {
+      const row = mechanicsObject(entry, `mechanics.levelThresholds[${index}]`);
+      if (!row) continue;
+      const parsed: NonNullable<ChampionAbilityMechanics['levelThresholds']>[number] = { level: mechanicsInt(row.level, `mechanics.levelThresholds[${index}].level`, 1, 20) };
+      if (typeof row.name === 'string' && row.name.trim()) parsed.name = row.name.trim().slice(0, 80);
+      if (row.rangeBonus !== undefined && row.rangeBonus !== null) parsed.rangeBonus = mechanicsInt(row.rangeBonus, `mechanics.levelThresholds[${index}].rangeBonus`, 0, 20);
+      if (row.permanentMaxStacks === true) parsed.permanentMaxStacks = true;
+      const wave = mechanicsObject(row.aaWave, `mechanics.levelThresholds[${index}].aaWave`);
+      if (wave) {
+        const aaWave: NonNullable<NonNullable<ChampionAbilityMechanics['levelThresholds']>[number]['aaWave']> = {};
+        if (wave.type === 'magic' || wave.type === 'true' || wave.type === 'physical') aaWave.type = wave.type;
+        const wad = mechanicsList(wave.ad, `mechanics.levelThresholds[${index}].aaWave.ad`, 0, 10, false);
+        const wap = mechanicsList(wave.ap, `mechanics.levelThresholds[${index}].aaWave.ap`, 0, 10, false);
+        if (wad) aaWave.ad = wad;
+        if (wap) aaWave.ap = wap;
+        if (wave.adSource === 'total' || wave.adSource === 'bonus') aaWave.adSource = wave.adSource;
+        if (wave.apSource === 'total' || wave.apSource === 'bonus') aaWave.apSource = wave.apSource;
+        if (wave.requiresMaxStacks === true) aaWave.requiresMaxStacks = true;
+        parsed.aaWave = aaWave;
+      }
+      list.push(parsed);
+    }
+    if (list.length) out.levelThresholds = list;
+  }
+  const protect = mechanicsObject(source.protect, 'mechanics.protect');
+  if (protect) {
+    const pct = mechanicsList(protect.damageReductionPct, 'mechanics.protect.damageReductionPct', 0, 100, false);
+    if (!pct) throw new HttpError(400, 'mechanics.protect.damageReductionPct: pon el % por rango');
+    const parsed: NonNullable<ChampionAbilityMechanics['protect']> = { turns: mechanicsInt(protect.turns, 'mechanics.protect.turns', 1, 99), damageReductionPct: pct };
+    if (typeof protect.name === 'string' && protect.name.trim()) parsed.name = protect.name.trim().slice(0, 80);
+    if (protect.target === 'self' || protect.target === 'ally' || protect.target === 'allyOrSelf') parsed.target = protect.target;
+    out.protect = parsed;
+  }
   return Object.keys(out).length ? out : undefined;
 }
 
@@ -1013,6 +1604,9 @@ export type ChampionAbilityVariant = {
   /** Aquí self se guarda explícito para poder sobrescribir una base enemy. */
   effectTarget?: 'self' | 'enemy';
   effectName?: string;
+  area?: AreaPattern;
+  requiresStacks?: { from: string; count: number; consume?: boolean };
+  stackDamage?: { from: string; pct: number[]; type?: 'physical' | 'magic' | 'true'; byLevel?: boolean };
 };
 
 const ABILITY_MAX_VARIANTS = 12;
@@ -1062,6 +1656,18 @@ function parseDamage(value: unknown): ChampionAbilityDamage | undefined {
       throw new HttpError(400, 'damage.damageBonus tiene que ser un número');
     }
     damage.damageBonus = source.damageBonus;
+  }
+  const hp = finiteNumbers(source.hp, 'damage.hp');
+  if (hp) damage.hp = hp;
+  if (source.hpSource !== undefined && source.hpSource !== null && source.hpSource !== '') {
+    if (source.hpSource !== 'max' && source.hpSource !== 'current' && source.hpSource !== 'missing' && source.hpSource !== 'bonus') {
+      throw new HttpError(400, 'damage.hpSource tiene que ser max, current, missing o bonus');
+    }
+    damage.hpSource = source.hpSource;
+  }
+  if (source.hpFrom !== undefined && source.hpFrom !== null && source.hpFrom !== '') {
+    if (source.hpFrom !== 'target' && source.hpFrom !== 'self') throw new HttpError(400, 'damage.hpFrom tiene que ser target o self');
+    damage.hpFrom = source.hpFrom;
   }
   return Object.keys(damage).length ? damage : undefined;
 }
@@ -1233,6 +1839,30 @@ function parseAbilityVariants(value: unknown): ChampionAbilityVariant[] | undefi
     }
     const effectName = boundedText(source.effectName, `${label}.effectName`, 80);
     if (effectName) variant.effectName = effectName;
+    if ('area' in source) {
+      const area = parseAreaPattern(source.area, `${label}.area`);
+      if (area) variant.area = area;
+    }
+    const requiresStacks = mechanicsObject(source.requiresStacks, `${label}.requiresStacks`);
+    if (requiresStacks) {
+      const from = typeof requiresStacks.from === 'string' ? requiresStacks.from.trim().slice(0, 80) : '';
+      if (!from) throw new HttpError(400, `${label}.requiresStacks.from: pon el nombre de la habilidad que tiene las cargas`);
+      variant.requiresStacks = { from, count: mechanicsInt(requiresStacks.count, `${label}.requiresStacks.count`, 1, 999) };
+      if (requiresStacks.consume === true) variant.requiresStacks.consume = true;
+    }
+    const variantStackDamage = mechanicsObject(source.stackDamage, `${label}.stackDamage`);
+    if (variantStackDamage) {
+      const from = typeof variantStackDamage.from === 'string' ? variantStackDamage.from.trim().slice(0, 80) : '';
+      if (!from) throw new HttpError(400, `${label}.stackDamage.from: pon el nombre de la habilidad que tiene las cargas`);
+      const pct = mechanicsList(variantStackDamage.pct, `${label}.stackDamage.pct`, 0, 999, false);
+      if (!pct) throw new HttpError(400, `${label}.stackDamage.pct: pon el % por rango`);
+      variant.stackDamage = { from, pct };
+      if (variantStackDamage.type !== undefined && variantStackDamage.type !== null && variantStackDamage.type !== 'magic') {
+        if (variantStackDamage.type !== 'physical' && variantStackDamage.type !== 'true') throw new HttpError(400, `${label}.stackDamage.type tiene que ser physical, magic o true`);
+        variant.stackDamage.type = variantStackDamage.type;
+      }
+      if (variantStackDamage.byLevel === true) variant.stackDamage.byLevel = true;
+    }
     variants.push(variant);
   });
   return variants.length ? variants : undefined;
