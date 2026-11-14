@@ -898,6 +898,28 @@ export type ChampionAbilityMechanics = {
   takedownHeal?: { flat?: number[]; flatByLevel?: boolean; ratios?: { stat: CastPoolStat; values: number[] }[]; champion?: boolean };
   levelThresholds?: { level: number; name?: string; rangeBonus?: number; aaWave?: { type?: 'magic' | 'true' | 'physical'; ad?: number[]; adSource?: 'total' | 'bonus'; ap?: number[]; apSource?: 'total' | 'bonus'; requiresMaxStacks?: boolean }; permanentMaxStacks?: boolean }[];
   protect?: { name?: string; turns: number; damageReductionPct: number[]; target?: 'self' | 'ally' | 'allyOrSelf' };
+  combatTraits?: ChampionCombatTraits;
+};
+
+export type ChampionCombatTraits = {
+  capture?: { name?: string };
+  combatStart?: { statusName: string; turns: number; pick?: 'enemy'; count?: number };
+  combatEntry?: { statusName: string; turns?: number; appliesTo: 'allies' | 'self' | 'enemies' };
+  tough?: { flat: number; name?: string; auraAllies?: boolean; onAllySurvive?: { atkSpe?: number; ac?: number; mr?: number } };
+  aura?: { range: number; label?: string; abSpe?: number; minAbSpe?: number; manaCost?: number; manaCostPct?: number };
+  mrScalesWithHp?: { max: number; min: number };
+  formidable?: { hpPct: number };
+  abilityDamageTaken?: { pct: number };
+  absorbAllyMagic?: { chancePct?: number; name?: string };
+  guardAlly?: { name?: string; turns: number };
+  onAllyJoin?: { statusName?: string; turns?: number; pick?: 'enemy'; challenge?: boolean };
+  packTactics?: { label?: string; hitBonus: number };
+  unstoppableVsLowerHp?: { name?: string };
+  trueSight?: { range: number; label?: string };
+  deathNotice?: { text: string };
+  challenge?: { statusName?: string; turns?: number };
+  aaMark?: { name: string; max: number; consume?: boolean; damage?: number; damageType?: 'physical' | 'magic' | 'true'; status?: string; statusTurns?: number };
+  onEnemyUltimate?: { oncePerCombat?: boolean; atkSpe?: number; ac?: number; mr?: number; taunt?: boolean; tauntName?: string; tauntTurns?: number; grantCharges?: number; grantChargeTo?: string };
 };
 
 const CAST_POOL_STATS = ['ad', 'bonusAd', 'baseAd', 'ap', 'hp', 'bonusHp', 'missingHp', 'armor', 'bonusArmor', 'mr', 'bonusMr', 'mana', 'bonusMana'] as const;
@@ -1700,8 +1722,244 @@ export function parseAbilityMechanics(value: unknown): ChampionAbilityMechanics 
     if (protect.target === 'self' || protect.target === 'ally' || protect.target === 'allyOrSelf') parsed.target = protect.target;
     out.protect = parsed;
   }
+  const combatTraits = mechanicsObject(source.combatTraits, 'mechanics.combatTraits');
+  if (combatTraits) out.combatTraits = parseCombatTraits(combatTraits, 'mechanics.combatTraits');
   return Object.keys(out).length ? out : undefined;
 }
+
+function parseCombatTraits(value: unknown, field: string): ChampionCombatTraits {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new HttpError(400, `${field} tiene que ser un objeto`);
+  const source = value as Record<string, unknown>;
+  const out: ChampionCombatTraits = {};
+  const optText = (raw: unknown, name: string, max = 200): string | undefined => {
+    if (raw === undefined || raw === null || raw === '') return undefined;
+    if (typeof raw !== 'string') throw new HttpError(400, `${name} tiene que ser un texto`);
+    const text = raw.trim();
+    if (!text) return undefined;
+    if (text.length > max) throw new HttpError(400, `${name} admite como máximo ${max} caracteres`);
+    return text;
+  };
+  const optNum = (raw: unknown, name: string, min: number, max: number): number | undefined => {
+    if (raw === undefined || raw === null || raw === '') return undefined;
+    if (typeof raw !== 'number' || !Number.isFinite(raw) || raw < min || raw > max) throw new HttpError(400, `${name} tiene que ser un número entre ${min} y ${max}`);
+    return raw;
+  };
+  const optInt = (raw: unknown, name: string, min: number, max: number): number | undefined => {
+    const n = optNum(raw, name, min, max);
+    if (n == null) return undefined;
+    if (!Number.isInteger(n)) throw new HttpError(400, `${name} tiene que ser un entero`);
+    return n;
+  };
+  const optQuarter = (raw: unknown, name: string, min: number, max: number): number | undefined => {
+    const n = optNum(raw, name, min, max);
+    if (n == null) return undefined;
+    const cleaned = Math.round(n * 4) / 4;
+    if (Math.abs(cleaned - n) > 1e-6) throw new HttpError(400, `${name} tiene que ir de 0,25 en 0,25`);
+    return cleaned;
+  };
+  if (source.capture !== undefined && source.capture !== null) {
+    const cap = mechanicsObject(source.capture, `${field}.capture`);
+    if (!cap) throw new HttpError(400, `${field}.capture tiene que ser un objeto`);
+    const name = optText(cap.name, `${field}.capture.name`, 80);
+    out.capture = name ? { name } : {};
+  }
+  if (source.combatStart !== undefined && source.combatStart !== null) {
+    const raw = mechanicsObject(source.combatStart, `${field}.combatStart`);
+    if (!raw) throw new HttpError(400, `${field}.combatStart tiene que ser un objeto`);
+    const statusName = optText(raw.statusName, `${field}.combatStart.statusName`, 80);
+    if (!statusName) throw new HttpError(400, `${field}.combatStart.statusName es obligatorio`);
+    out.combatStart = { statusName, turns: mechanicsInt(raw.turns, `${field}.combatStart.turns`, 1, 99) };
+    if (raw.pick === 'enemy') out.combatStart.pick = 'enemy';
+    const count = optInt(raw.count, `${field}.combatStart.count`, 1, 10);
+    if (count) out.combatStart.count = count;
+  }
+  if (source.combatEntry !== undefined && source.combatEntry !== null) {
+    const raw = mechanicsObject(source.combatEntry, `${field}.combatEntry`);
+    if (!raw) throw new HttpError(400, `${field}.combatEntry tiene que ser un objeto`);
+    const statusName = optText(raw.statusName, `${field}.combatEntry.statusName`, 80);
+    if (!statusName) throw new HttpError(400, `${field}.combatEntry.statusName es obligatorio`);
+    const appliesTo = raw.appliesTo;
+    if (appliesTo !== 'allies' && appliesTo !== 'self' && appliesTo !== 'enemies') throw new HttpError(400, `${field}.combatEntry.appliesTo tiene que ser allies, self o enemies`);
+    const entry: NonNullable<ChampionCombatTraits['combatEntry']> = { statusName, appliesTo };
+    const turns = optInt(raw.turns, `${field}.combatEntry.turns`, 1, 99);
+    if (turns) entry.turns = turns;
+    out.combatEntry = entry;
+  }
+  if (source.tough !== undefined && source.tough !== null) {
+    const raw = mechanicsObject(source.tough, `${field}.tough`);
+    if (!raw) throw new HttpError(400, `${field}.tough tiene que ser un objeto`);
+    const tough: NonNullable<ChampionCombatTraits['tough']> = { flat: mechanicsInt(raw.flat, `${field}.tough.flat`, 1, 99) };
+    const name = optText(raw.name, `${field}.tough.name`, 80);
+    if (name) tough.name = name;
+    if (raw.auraAllies === true) tough.auraAllies = true;
+    if (raw.onAllySurvive !== undefined && raw.onAllySurvive !== null) {
+      const hit = mechanicsObject(raw.onAllySurvive, `${field}.tough.onAllySurvive`);
+      if (!hit) throw new HttpError(400, `${field}.tough.onAllySurvive tiene que ser un objeto`);
+      const atkSpe = optInt(hit.atkSpe, `${field}.tough.onAllySurvive.atkSpe`, -20, 20);
+      const ac = optInt(hit.ac, `${field}.tough.onAllySurvive.ac`, -20, 20);
+      const mr = optQuarter(hit.mr, `${field}.tough.onAllySurvive.mr`, -20, 20);
+      tough.onAllySurvive = { ...(atkSpe != null ? { atkSpe } : {}), ...(ac != null ? { ac } : {}), ...(mr != null ? { mr } : {}) };
+    }
+    out.tough = tough;
+  }
+  if (source.aura !== undefined && source.aura !== null) {
+    const raw = mechanicsObject(source.aura, `${field}.aura`);
+    if (!raw) throw new HttpError(400, `${field}.aura tiene que ser un objeto`);
+    const aura: NonNullable<ChampionCombatTraits['aura']> = { range: mechanicsInt(raw.range, `${field}.aura.range`, 1, 20) };
+    const label = optText(raw.label, `${field}.aura.label`, 80);
+    if (label) aura.label = label;
+    const abSpe = optInt(raw.abSpe, `${field}.aura.abSpe`, -10, 10);
+    if (abSpe != null) aura.abSpe = abSpe;
+    const minAbSpe = optInt(raw.minAbSpe, `${field}.aura.minAbSpe`, 0, 10);
+    if (minAbSpe != null) aura.minAbSpe = minAbSpe;
+    const manaCost = optInt(raw.manaCost, `${field}.aura.manaCost`, 1, 99);
+    if (manaCost != null) aura.manaCost = manaCost;
+    const manaCostPct = optInt(raw.manaCostPct, `${field}.aura.manaCostPct`, 1, 500);
+    if (manaCostPct != null) aura.manaCostPct = manaCostPct;
+    out.aura = aura;
+  }
+  if (source.deathNotice !== undefined && source.deathNotice !== null) {
+    const raw = mechanicsObject(source.deathNotice, `${field}.deathNotice`);
+    if (!raw) throw new HttpError(400, `${field}.deathNotice tiene que ser un objeto`);
+    const notice = optText(raw.text, `${field}.deathNotice.text`, 400);
+    if (!notice) throw new HttpError(400, `${field}.deathNotice.text es obligatorio`);
+    out.deathNotice = { text: notice };
+  }
+  if (source.challenge !== undefined && source.challenge !== null) {
+    const raw = mechanicsObject(source.challenge, `${field}.challenge`);
+    if (!raw) throw new HttpError(400, `${field}.challenge tiene que ser un objeto`);
+    const challenge: NonNullable<ChampionCombatTraits['challenge']> = {};
+    const name = optText(raw.statusName, `${field}.challenge.statusName`, 80);
+    if (name) challenge.statusName = name;
+    const turns = optInt(raw.turns, `${field}.challenge.turns`, 1, 99);
+    if (turns) challenge.turns = turns;
+    out.challenge = challenge;
+  }
+  if (source.aaMark !== undefined && source.aaMark !== null) {
+    const raw = mechanicsObject(source.aaMark, `${field}.aaMark`);
+    if (!raw) throw new HttpError(400, `${field}.aaMark tiene que ser un objeto`);
+    const name = optText(raw.name, `${field}.aaMark.name`, 80);
+    if (!name) throw new HttpError(400, `${field}.aaMark.name es obligatorio`);
+    const mark: NonNullable<ChampionCombatTraits['aaMark']> = { name, max: mechanicsInt(raw.max, `${field}.aaMark.max`, 1, 20) };
+    if (raw.consume === false) mark.consume = false;
+    const damage = optInt(raw.damage, `${field}.aaMark.damage`, 1, 999);
+    if (damage) mark.damage = damage;
+    if (raw.damageType === 'physical' || raw.damageType === 'magic' || raw.damageType === 'true') mark.damageType = raw.damageType;
+    const status = optText(raw.status, `${field}.aaMark.status`, 80);
+    if (status) mark.status = status;
+    const statusTurns = optInt(raw.statusTurns, `${field}.aaMark.statusTurns`, 1, 99);
+    if (statusTurns) mark.statusTurns = statusTurns;
+    out.aaMark = mark;
+  }
+  if (source.onEnemyUltimate !== undefined && source.onEnemyUltimate !== null) {
+    const raw = mechanicsObject(source.onEnemyUltimate, `${field}.onEnemyUltimate`);
+    if (!raw) throw new HttpError(400, `${field}.onEnemyUltimate tiene que ser un objeto`);
+    const cfg: NonNullable<ChampionCombatTraits['onEnemyUltimate']> = {};
+    if (raw.oncePerCombat === true) cfg.oncePerCombat = true;
+    const atkSpe = optInt(raw.atkSpe, `${field}.onEnemyUltimate.atkSpe`, -20, 20);
+    if (atkSpe != null) cfg.atkSpe = atkSpe;
+    const ac = optInt(raw.ac, `${field}.onEnemyUltimate.ac`, -20, 20);
+    if (ac != null) cfg.ac = ac;
+    const mr = optQuarter(raw.mr, `${field}.onEnemyUltimate.mr`, -20, 20);
+    if (mr != null) cfg.mr = mr;
+    if (raw.taunt === true) cfg.taunt = true;
+    const tauntName = optText(raw.tauntName, `${field}.onEnemyUltimate.tauntName`, 80);
+    if (tauntName) cfg.tauntName = tauntName;
+    const tauntTurns = optInt(raw.tauntTurns, `${field}.onEnemyUltimate.tauntTurns`, 1, 99);
+    if (tauntTurns) cfg.tauntTurns = tauntTurns;
+    const grantCharges = optInt(raw.grantCharges, `${field}.onEnemyUltimate.grantCharges`, 1, 20);
+    if (grantCharges) cfg.grantCharges = grantCharges;
+    const grantChargeTo = optText(raw.grantChargeTo, `${field}.onEnemyUltimate.grantChargeTo`, 80);
+    if (grantChargeTo) cfg.grantChargeTo = grantChargeTo;
+    out.onEnemyUltimate = cfg;
+  }
+  if (source.mrScalesWithHp !== undefined && source.mrScalesWithHp !== null) {
+    const raw = mechanicsObject(source.mrScalesWithHp, `${field}.mrScalesWithHp`);
+    if (!raw) throw new HttpError(400, `${field}.mrScalesWithHp tiene que ser un objeto`);
+    const max = optQuarter(raw.max, `${field}.mrScalesWithHp.max`, 0, 99);
+    const min = optQuarter(raw.min, `${field}.mrScalesWithHp.min`, 0, 99);
+    if (max == null || min == null) throw new HttpError(400, `${field}.mrScalesWithHp necesita max y min`);
+    if (min > max) throw new HttpError(400, `${field}.mrScalesWithHp.min no puede ser mayor que max`);
+    out.mrScalesWithHp = { max, min };
+  }
+  if (source.formidable !== undefined && source.formidable !== null) {
+    const raw = mechanicsObject(source.formidable, `${field}.formidable`);
+    if (!raw) throw new HttpError(400, `${field}.formidable tiene que ser un objeto`);
+    const hpPct = optNum(raw.hpPct, `${field}.formidable.hpPct`, 0.01, 100);
+    if (hpPct == null) throw new HttpError(400, `${field}.formidable.hpPct es obligatorio`);
+    out.formidable = { hpPct: Math.round(hpPct * 100) / 100 };
+  }
+  if (source.abilityDamageTaken !== undefined && source.abilityDamageTaken !== null) {
+    const raw = mechanicsObject(source.abilityDamageTaken, `${field}.abilityDamageTaken`);
+    if (!raw) throw new HttpError(400, `${field}.abilityDamageTaken tiene que ser un objeto`);
+    const pct = optNum(raw.pct, `${field}.abilityDamageTaken.pct`, 0, 100);
+    if (pct == null) throw new HttpError(400, `${field}.abilityDamageTaken.pct es obligatorio`);
+    out.abilityDamageTaken = { pct: Math.round(pct * 100) / 100 };
+  }
+  if (source.guardAlly !== undefined && source.guardAlly !== null) {
+    const raw = mechanicsObject(source.guardAlly, `${field}.guardAlly`);
+    if (!raw) throw new HttpError(400, `${field}.guardAlly tiene que ser un objeto`);
+    const guard: NonNullable<ChampionCombatTraits['guardAlly']> = { turns: mechanicsInt(raw.turns, `${field}.guardAlly.turns`, 1, 99) };
+    const name = optText(raw.name, `${field}.guardAlly.name`, 80);
+    if (name) guard.name = name;
+    out.guardAlly = guard;
+  }
+  if (source.onAllyJoin !== undefined && source.onAllyJoin !== null) {
+    const raw = mechanicsObject(source.onAllyJoin, `${field}.onAllyJoin`);
+    if (!raw) throw new HttpError(400, `${field}.onAllyJoin tiene que ser un objeto`);
+    const join: NonNullable<ChampionCombatTraits['onAllyJoin']> = {};
+    const statusName = optText(raw.statusName, `${field}.onAllyJoin.statusName`, 80);
+    if (statusName) join.statusName = statusName;
+    const turns = optInt(raw.turns, `${field}.onAllyJoin.turns`, 1, 99);
+    if (turns) join.turns = turns;
+    if (raw.pick === 'enemy') join.pick = 'enemy';
+    if (raw.challenge === true) join.challenge = true;
+    out.onAllyJoin = join;
+  }
+  if (source.packTactics !== undefined && source.packTactics !== null) {
+    const raw = mechanicsObject(source.packTactics, `${field}.packTactics`);
+    if (!raw) throw new HttpError(400, `${field}.packTactics tiene que ser un objeto`);
+    const hitBonus = optInt(raw.hitBonus, `${field}.packTactics.hitBonus`, 1, 20);
+    if (hitBonus == null) throw new HttpError(400, `${field}.packTactics.hitBonus es obligatorio`);
+    const pack: NonNullable<ChampionCombatTraits['packTactics']> = { hitBonus };
+    const label = optText(raw.label, `${field}.packTactics.label`, 80);
+    if (label) pack.label = label;
+    out.packTactics = pack;
+  }
+  if (source.unstoppableVsLowerHp !== undefined && source.unstoppableVsLowerHp !== null) {
+    if (source.unstoppableVsLowerHp === true) {
+      out.unstoppableVsLowerHp = {};
+    } else {
+      const raw = mechanicsObject(source.unstoppableVsLowerHp, `${field}.unstoppableVsLowerHp`);
+      if (!raw) throw new HttpError(400, `${field}.unstoppableVsLowerHp tiene que ser un objeto`);
+      const name = optText(raw.name, `${field}.unstoppableVsLowerHp.name`, 80);
+      out.unstoppableVsLowerHp = name ? { name } : {};
+    }
+  }
+  if (source.trueSight !== undefined && source.trueSight !== null) {
+    const raw = mechanicsObject(source.trueSight, `${field}.trueSight`);
+    if (!raw) throw new HttpError(400, `${field}.trueSight tiene que ser un objeto`);
+    const range = mechanicsInt(raw.range, `${field}.trueSight.range`, 1, 20);
+    const sight: NonNullable<ChampionCombatTraits['trueSight']> = { range };
+    const label = optText(raw.label, `${field}.trueSight.label`, 80);
+    if (label) sight.label = label;
+    out.trueSight = sight;
+  }
+  if (source.absorbAllyMagic !== undefined && source.absorbAllyMagic !== null) {
+    const raw = mechanicsObject(source.absorbAllyMagic, `${field}.absorbAllyMagic`);
+    if (!raw) throw new HttpError(400, `${field}.absorbAllyMagic tiene que ser un objeto`);
+    const absorb: { chancePct?: number; name?: string } = {};
+    const chancePct = optInt(raw.chancePct, `${field}.absorbAllyMagic.chancePct`, 1, 100);
+    if (chancePct != null) absorb.chancePct = chancePct;
+    const name = optText(raw.name, `${field}.absorbAllyMagic.name`, 80);
+    if (name) absorb.name = name;
+    if (absorb.chancePct == null) absorb.chancePct = 50;
+    out.absorbAllyMagic = absorb;
+  }
+  if (!Object.keys(out).length) throw new HttpError(400, `${field} no tiene ningún rasgo`);
+  return out;
+}
+
 
 /** Fase alternativa de una habilidad (Q de Aatrox, Riven, básicas de Hwei…). */
 export type ChampionAbilityVariant = {
@@ -2880,9 +3138,10 @@ export function parseFaqPatch(body: unknown): FaqPatch {
 
 export const NPC_KINDS = ['npc', 'monstruo'] as const;
 export type NpcKind = (typeof NPC_KINDS)[number];
-export const NPC_STAT_KEYS = ['hp', 'mana', 'ac', 'mr', 'spe', 'ad', 'ap'] as const;
+export const NPC_STAT_KEYS = ['hp', 'mana', 'ac', 'mr', 'spe', 'ad', 'ap', 'atkSpe', 'abSpe'] as const;
 export type NpcStatKey = (typeof NPC_STAT_KEYS)[number];
-export type NpcStats = Partial<Record<NpcStatKey, number>>;
+export const NPC_DICE_STAT_KEYS: readonly NpcStatKey[] = ['ad', 'ap'];
+export type NpcStats = Partial<Record<NpcStatKey, number | string>>;
 
 export const NPC_NAME_MAX = 80;
 export const NPC_TAG_MAX = 40;
@@ -2906,6 +3165,7 @@ export type NpcAbility = {
   cost?: string;
   damage?: ChampionAbilityDamage;
   effect?: ChampionAbilityEffect[];
+  mechanics?: ChampionAbilityMechanics;
 };
 
 /** Encuadre de la foto: punto focal (0-100 %) y zoom (1 = sin zoom). */
@@ -2980,6 +3240,24 @@ function randomAbilityId(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+const NPC_DICE_RE = /^(?:[+-]?\d+d\d+|[+-]?\d+)(?:[+-]\d+d\d+|[+-]\d+)*$/i;
+
+function parseNpcStatValue(raw: unknown, key: NpcStatKey): number | string {
+  if (typeof raw === 'number' && Number.isFinite(raw)) return raw;
+  if (typeof raw === 'string') {
+    const text = raw.trim().replace(/\s+/g, '');
+    if (!text) throw new HttpError(400, `stats.${key} está vacío`);
+    if ((NPC_DICE_STAT_KEYS as readonly string[]).includes(key) && NPC_DICE_RE.test(text)) {
+      if (/^-?\d+(?:\.\d+)?$/.test(text)) return Number(text);
+      return text;
+    }
+    if (/^-?\d+(?:\.\d+)?$/.test(text)) return Number(text);
+  }
+  throw new HttpError(400, (NPC_DICE_STAT_KEYS as readonly string[]).includes(key)
+    ? `stats.${key} tiene que ser un número o dados (p. ej. 3d4 o 4d4+2)`
+    : `stats.${key} tiene que ser un número`);
+}
+
 function parseNpcStats(value: unknown): NpcStats {
   if (value === undefined || value === null) return {};
   if (typeof value !== 'object' || Array.isArray(value)) throw new HttpError(400, 'stats tiene que ser un objeto');
@@ -2988,8 +3266,7 @@ function parseNpcStats(value: unknown): NpcStats {
   for (const key of NPC_STAT_KEYS) {
     const raw = source[key];
     if (raw === undefined || raw === null || raw === '') continue;
-    if (typeof raw !== 'number' || !Number.isFinite(raw)) throw new HttpError(400, `stats.${key} tiene que ser un número`);
-    stats[key] = raw;
+    stats[key] = parseNpcStatValue(raw, key);
   }
   return stats;
 }
@@ -3020,6 +3297,10 @@ function parseNpcAbilities(value: unknown): NpcAbility[] {
     if (damage) ability.damage = damage;
     const effect = parseEffects(source.effect ?? undefined);
     if (effect) ability.effect = effect;
+    if (source.mechanics !== undefined && source.mechanics !== null) {
+      const mechanics = parseAbilityMechanics(source.mechanics);
+      if (mechanics) ability.mechanics = mechanics;
+    }
     return ability;
   });
 }
@@ -3154,7 +3435,7 @@ export type CombatEffect = {
   value?: number;
   /** Acumulaciones del estado. */
   stacks?: number;
-  /** Origen: item:<nombre> o ability:<nombre>. */
+  /** Origen: item:<nombre>, ability:<nombre> o un rasgo de combate (capture:, taunt:, entry:, …). */
   source?: string;
 };
 
@@ -3224,6 +3505,34 @@ function combatId(value: unknown, field: string): string {
   return text;
 }
 
+/** Prefijos de rasgo de combate (combatTraits.ts). item:/ability: siguen permitidos. */
+const COMBAT_TRAIT_SOURCE_PREFIXES = [
+  'capture:',
+  'taunt:',
+  'entry:',
+  'tough:',
+  'aamark:',
+  'start:',
+  'once:enemy-ult:',
+  'aura:',
+  'survive:',
+  'flatdr:',
+  'enemy-ult:',
+] as const;
+
+/**
+ * item:<nombre> y ability:<nombre> no admiten '.' (protección Mongo).
+ * Los rasgos sí, porque el id del participante es un UUID (p. ej. entry:<uuid>:<nombre>).
+ */
+function isAllowedEffectSource(key: string): boolean {
+  if (!key || key.includes('$')) return false;
+  if (key.startsWith('item:') || key.startsWith('ability:')) {
+    const prefix = key.startsWith('item:') ? 'item:' : 'ability:';
+    return key.length > prefix.length && !key.includes('.');
+  }
+  return COMBAT_TRAIT_SOURCE_PREFIXES.some(prefix => key.startsWith(prefix) && key.length > prefix.length);
+}
+
 function combatEffect(value: unknown): CombatEffect {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new HttpError(400, 'Cada efecto tiene que ser un objeto');
@@ -3250,8 +3559,8 @@ function combatEffect(value: unknown): CombatEffect {
   }
   if ('source' in source && source.source !== undefined && source.source !== null) {
     const key = boundedText(source.source, 'effect.source', 120);
-    if (!key || key.includes('.') || key.startsWith('$') || (!key.startsWith('item:') && !key.startsWith('ability:'))) {
-      throw new HttpError(400, 'effect.source tiene que ser item:<nombre> o ability:<nombre>');
+    if (!isAllowedEffectSource(key)) {
+      throw new HttpError(400, 'effect.source tiene que ser item:<nombre>, ability:<nombre> o un rasgo de combate (capture:, taunt:, entry:, tough:, start:…)');
     }
     effect.source = key;
   }

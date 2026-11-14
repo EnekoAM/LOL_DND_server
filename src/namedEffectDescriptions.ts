@@ -15,7 +15,7 @@ import { SHEET_STAT_KEYS } from './validate';
 type DescriptionDoc = { _id: string; description?: string; onHit?: boolean; bonus?: EffectBonusConfig; area?: AreaPattern; updatedAt: string };
 
 // ── Configurador de bonus (mismo modelo que web/src/data/effectBonus.ts) ──
-const TRIGGERS = ['always', 'on-hit', 'on-attack', 'after-ability', 'after-use', 'on-ability-hit', 'on-use', 'on-takedown', 'hp-below', 'on-damage-taken', 'on-attacked', 'each-turn', 'energized-max', 'on-ultimate-use'] as const;
+const TRIGGERS = ['always', 'on-hit', 'on-attack', 'after-ability', 'after-use', 'on-ability-hit', 'on-use', 'on-takedown', 'hp-below', 'on-damage-taken', 'on-attacked', 'each-turn', 'energized-max', 'on-ultimate-use', 'on-enemy-ultimate-use', 'combat-start', 'combat-entry', 'on-survived-hit', 'on-death'] as const;
 const KINDS = ['stat', 'damage', 'heal', 'shield', 'mana', 'slow', 'status', 'extra-on-hit', 'attack-speed', 'move-speed', 'vigor', 'damage-reduction', 'execute', 'extra-action'] as const;
 const SCALING = ['baseAd', 'ad', 'bonusAd', 'ap', 'hp', 'bonusHp', 'missingHp', 'mana', 'bonusMana', 'armor', 'bonusArmor', 'mr', 'bonusMr', 'critChance', 'manaRegen', 'level', 'spe', 'targetMaxHp', 'targetCurrentHp', 'targetMissingHp', 'targetArmor', 'targetMr', 'targetSpe', 'lethality'] as const;
 const DAMAGE_TYPES = ['physical', 'magic', 'true'] as const;

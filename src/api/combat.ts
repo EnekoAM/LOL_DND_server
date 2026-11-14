@@ -180,15 +180,30 @@ const isAdminRequest = (req: ApiRequest): boolean => {
   return role?.trim() === 'admin';
 };
 
-/** Las stats / habilidades de los NPCs son solo del admin: fuera la copia para el resto. */
-function redactCombat<T extends { participants: CombatParticipant[] }>(combat: T, admin: boolean): T {
-  if (admin || !combat.participants.some(p => p.kind === 'npc' && p.sheet)) return combat;
+/**
+ * Para players: oculta vida, maná, stats y la ficha de quien no sea un personaje jugador
+ * (NPCs, monstruos, campeones, custom). Deja nombre, foto, iniciativa, estados y bonus temporales.
+ * El aviso en vivo no manda el documento: cada pestaña lo vuelve a pedir por GET, que ya va redactado.
+ */
+const ENEMY_REDACT_KEYS = [
+  'hp', 'maxHp', 'tempHp', 'shield',
+  'currentResource', 'resourceMax',
+  'sheet',
+  'actionsLeft', 'actionsExtra',
+  'cooldowns', 'activeEffects', 'abilityPhases',
+  'initiativeBonus',
+  'vigor', 'movementUsed',
+] as const;
+
+export function redactCombat<T extends { participants: CombatParticipant[] }>(combat: T, admin: boolean): T {
+  if (admin) return combat;
   return {
     ...combat,
-    participants: combat.participants.map(p => {
-      if (p.kind !== 'npc' || !p.sheet) return p;
-      const { sheet: _sheet, ...rest } = p;
-      return rest;
+    participants: combat.participants.map(participant => {
+      if (participant.kind === 'player') return participant;
+      const next = { ...participant };
+      for (const key of ENEMY_REDACT_KEYS) delete next[key];
+      return next;
     }),
   };
 }
