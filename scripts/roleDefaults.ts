@@ -85,7 +85,7 @@ const mago: StatLine[] = [
   row(25, '1d2', '2d2', 6, 1, 2),
   row(40, '1d2', '2d4', 6, 1, 2),
   row(55, '1d2', '3d4', 6, 1, 2),
-  row(70, '1d2', '3d4', 7, 1, 3),
+  row(70, '1d2', '3d4', 7, 1, 2),
   row(85, '1d2', '4d4', 7, 1, 3),
   row(100, '2d2', '4d6', 7, 1, 3),
   row(115, '2d2', '4d6+1d4', 8, 1, 3),
@@ -165,25 +165,30 @@ const tirador: StatLine[] = [
   row(100, '1d6+10d4+7d2', '4d4', 11, 3, 1),
 ];
 
+/**
+ * Abilities (abSpe) van en la tabla, no por tramos: L1–3 = 2, L4–5 = 3
+ * (L4 pedido; L5 sube para no quedar por debajo de L4 ni del tramo 6–10, que ya era 3),
+ * L6–10 = 3, L11–15 = 4, L16–20 = 5.
+ */
 const support: StatLine[] = [
-  row(35, '1d2', '1d2', 6, 1, 3),
-  row(50, '1d2', '1d2', 6, 1, 3),
-  row(65, '2d2', '2d2', 6, 1, 3),
-  row(80, '2d2', '2d2', 7, 1, 4),
-  row(95, '2d2', '2d2', 7, 1, 4),
-  row(110, '3d2', '3d2', 7, 1, 4),
-  row(125, '3d2', '3d2', 8, 1, 4),
-  row(140, '3d2', '3d2', 8, 1, 4),
-  row(155, '4d2', '4d2', 8, 1, 4),
-  row(170, '4d2', '4d2', 9, 1, 5),
-  row(185, '1d4+4d2', '1d4+4d2', 9, 1, 5),
-  row(200, '1d4+4d2', '1d4+4d2', 9, 1, 5),
-  row(215, '1d4+4d2', '1d4+4d2', 10, 1, 5),
-  row(230, '1d4+5d2', '1d4+5d2', 10, 1, 5),
-  row(245, '1d4+5d2', '1d4+5d2', 10, 1, 5),
-  row(260, '2d4+5d2', '2d4+5d2', 11, 1, 6),
-  row(275, '2d4+5d2', '2d4+5d2', 11, 1, 6),
-  row(290, '2d4+5d2', '2d4+5d2', 11, 1, 6),
+  row(35, '1d2', '1d2', 6, 1, 2),
+  row(50, '1d2', '1d2', 6, 1, 2),
+  row(65, '2d2', '2d2', 6, 1, 2),
+  row(80, '2d2', '2d2', 7, 1, 3),
+  row(95, '2d2', '2d2', 7, 1, 3),
+  row(110, '3d2', '3d2', 7, 1, 3),
+  row(125, '3d2', '3d2', 8, 1, 3),
+  row(140, '3d2', '3d2', 8, 1, 3),
+  row(155, '4d2', '4d2', 8, 1, 3),
+  row(170, '4d2', '4d2', 9, 1, 3),
+  row(185, '1d4+4d2', '1d4+4d2', 9, 1, 4),
+  row(200, '1d4+4d2', '1d4+4d2', 9, 1, 4),
+  row(215, '1d4+4d2', '1d4+4d2', 10, 1, 4),
+  row(230, '1d4+5d2', '1d4+5d2', 10, 1, 4),
+  row(245, '1d4+5d2', '1d4+5d2', 10, 1, 4),
+  row(260, '2d4+5d2', '2d4+5d2', 11, 1, 5),
+  row(275, '2d4+5d2', '2d4+5d2', 11, 1, 5),
+  row(290, '2d4+5d2', '2d4+5d2', 11, 1, 5),
 ];
 
 /**
@@ -264,7 +269,7 @@ export const DEFAULT_ROLE_TABLES: RoleTable[] = [
   { id: 'asesino-ad', name: 'Asesino AD', levels: withActions(withDefense(withHp(asesinoAd, 9), 10, 5), [1, 2, 2, 2], [2, 3, 3, 4]) },
   { id: 'asesino-ap', name: 'Asesino AP', levels: withActions(withDefense(withHp(asesinoAp, 9), 10, 5), [1, 1, 2, 2], [2, 3, 4, 4]) },
   { id: 'tirador', name: 'Tirador', levels: withActions(withDefense(withHp(tirador, 9), 9, 5), null, [1, 1, 2, 2]) },
-  { id: 'support', name: 'Support', levels: withActions(withDefense(withHp(support, 10), 10, 5), null, [2, 3, 4, 5]) },
+  { id: 'support', name: 'Support', levels: withDefense(withHp(support, 10), 10, 5) },
   {
     id: 'luchador-ad',
     name: 'Luchador AD',

@@ -778,6 +778,9 @@ export type ChampionAbilityDamage = {
   hp?: number[];
   hpSource?: 'max' | 'current' | 'missing' | 'bonus';
   hpFrom?: 'target' | 'self';
+  hpAdPer100?: number;
+  hpAdPer?: number;
+  hpAdSource?: 'total' | 'bonus' | 'itemDiceAvg';
 };
 
 export type ChampionAbilityEffect = {
@@ -820,7 +823,7 @@ export type ChampionAbility = {
 export type ChampionAbilityMechanics = {
   /** reducePerChampionHit: cada campeón enemigo alcanzado (AA / habilidad) quita N turnos a la recarga. */
   charges?: { start: number; max: number; recharge: number[]; reducePerChampionHit?: number };
-  stacks?: { turns: number; max: number; required?: number; onAa?: boolean; onAbilityHit?: boolean; onChampionTakedown?: boolean; onNonChampionKill?: boolean; stat?: string; perStack?: number[]; perTarget?: boolean; requiresDamage?: boolean; onChampionCc?: boolean; consumeAtMax?: boolean; onMaxCooldown?: number; onMaxHeal?: { selfRatios?: { stat: CastPoolStat; values: number[] }[]; allyRatios?: { stat: CastPoolStat; values: number[] }[]; alliesToo?: boolean; flat?: number[]; flatByLevel?: boolean }; armArmedAaAtMax?: boolean; armArmedAaTurns?: number; onMaxStatus?: { name?: string; stat?: string; amount?: number; pct?: number } };
+  stacks?: { turns: number; max: number; required?: number; onAa?: boolean; onAbilityHit?: boolean; onChampionTakedown?: boolean; onNonChampionKill?: boolean; stat?: string; perStack?: number[]; perTarget?: boolean; requiresDamage?: boolean; onChampionCc?: boolean; consumeAtMax?: boolean; countersPerTarget?: boolean; onMaxDamage?: boolean; onMaxSelfStats?: { stat: string; values: number[]; turns: number }[]; onMaxCooldown?: number; onMaxHeal?: { selfRatios?: { stat: CastPoolStat; values: number[] }[]; allyRatios?: { stat: CastPoolStat; values: number[] }[]; alliesToo?: boolean; flat?: number[]; flatByLevel?: boolean }; armArmedAaAtMax?: boolean; armArmedAaTurns?: number; onMaxStatus?: { name?: string; stat?: string; amount?: number; pct?: number } };
   requireStacks?: { from: string; count: number; consume?: boolean };
   permanentStacks?: { onAbilityChampionHit?: boolean; onTakedown?: boolean; takedownChampion?: number; takedownOther?: number; stat?: string; perStack?: number[]; byLevel?: boolean };
   grantPermanent?: { from: string; maxPerCast?: number; onKill?: boolean; perConsumedStack?: boolean };
@@ -846,9 +849,14 @@ export type ChampionAbilityMechanics = {
   /** Se puede volver a lanzar times veces gratis durante turns turnos tras usarla. */
   recast?: { times: number; turns: number };
   /** Al usarla, estado en sí mismo (bloquea la habilidad mientras dura). stat/amount/pct: bonus mientras dura. */
-  selfStatus?: { name: string; turns: number; value?: number; stat?: SheetStatKey; amount?: number; pct?: number; pctValues?: number[]; amountValues?: number[]; fixedAttacks?: number; requiresChampionHit?: boolean; blocksRecast?: boolean; stats?: { stat: string; amount?: number; pct?: number; amountValues?: number[]; pctValues?: number[]; ratios?: { stat: CastPoolStat; values: number[] }[] }[]; damageReductionValues?: number[]; cancelable?: boolean; blocksAbility?: boolean; durationByStacks?: { from: string; thresholds: { stacks: number; turns: number }[] } };
-  empoweredAa?: { healHpPct: number[]; hpSource?: 'max' | 'current' | 'missing' | 'bonus'; cooldown: number[]; byLevel?: boolean; reduceOnAbility?: number; reduceOnStruck?: number; skipAboveHpPct?: number };
-  trap?: { turns: number; name?: string; applyOnPlace?: boolean; eruptEffect?: { name: string; values?: number[]; duration?: number[] }[]; eruptEffectName?: string; eruptEffectDuration?: number };
+  selfStatus?: { name: string; turns: number; value?: number; stat?: SheetStatKey; amount?: number; pct?: number; pctValues?: number[]; amountValues?: number[]; fixedAttacks?: number; requiresChampionHit?: boolean; blocksRecast?: boolean; stats?: { stat: string; amount?: number; pct?: number; amountValues?: number[]; pctValues?: number[]; ratios?: { stat: CastPoolStat; values: number[] }[] }[]; damageReductionValues?: number[]; cancelable?: boolean; blocksAbility?: boolean; requiresSelfInArea?: boolean; durationByStacks?: { from: string; thresholds: { stacks: number; turns: number }[] } };
+  selfStatuses?: ChampionAbilityMechanics['selfStatus'][];
+  selfInArea?: boolean;
+  selfInAreaLabel?: string;
+  trailTurns?: number;
+  centerEffect?: { name: string; duration: number; values?: number[] };
+  empoweredAa?: { healHpPct?: number[]; hpSource?: 'max' | 'current' | 'missing' | 'bonus'; heal?: NonNullable<NonNullable<ChampionAbilityMechanics['stacks']>['onMaxHeal']>; healPerTarget?: boolean; applyAbilityDamage?: boolean; cooldown: number[]; byLevel?: boolean; reduceOnAbility?: number; reduceOnStruck?: number; reduceOnAuto?: number; skipAboveHpPct?: number };
+  trap?: { turns: number; name?: string; applyOnPlace?: boolean; eruptEffect?: { name: string; values?: number[]; duration?: number[] }[]; eruptEffectName?: string; eruptEffectDuration?: number; damageOnDetonate?: boolean };
   reduceEmpoweredAaOnHit?: number;
   costHpMaxPct?: number;
   costHpMinCurrentPct?: number;
@@ -874,7 +882,7 @@ export type ChampionAbilityMechanics = {
     armArmedAa?: boolean;
   };
   recastOnTakedown?: { times: number; turns: number; max?: number; champion?: boolean };
-  armedAa?: { type?: string; ad?: number[]; ap?: number[]; adSource?: 'total' | 'bonus'; apSource?: 'total' | 'bonus'; effectName?: string; effectDuration?: number; effect?: { name: string; values?: number[]; duration?: number[] }[]; endsSelfStatus?: boolean; turns?: number; hp?: number[]; hpSource?: 'max' | 'current' | 'missing' | 'bonus'; apPer100?: number; explodeFromLevel?: number };
+  armedAa?: { type?: string; ad?: number[]; ap?: number[]; adSource?: 'total' | 'bonus'; apSource?: 'total' | 'bonus'; effectName?: string; effectDuration?: number; effect?: { name: string; values?: number[]; duration?: number[] }[]; endsSelfStatus?: boolean; turns?: number; hp?: number[]; hpSource?: 'max' | 'current' | 'missing' | 'bonus'; apPer100?: number; explodeFromLevel?: number; charges?: number; effectOnLastCharge?: boolean; applyDamageOnUse?: boolean };
   armArmedAa?: boolean;
   resistShred?: { pct: number[]; turns: number; armor?: boolean; mr?: boolean };
   aaOnHit?: { hp?: number[]; hpSource?: 'max' | 'current' | 'missing' | 'bonus'; apPer100?: number; type?: string; ad?: number[]; adSource?: 'total' | 'bonus'; ap?: number[]; apSource?: 'total' | 'bonus'; always?: boolean; perTargetStacks?: { turns: number; max?: number } };
@@ -884,7 +892,7 @@ export type ChampionAbilityMechanics = {
   onAbilityUse?: { turns: number; attackSpeed?: number[] };
   resetSectorShots?: { from: string; count: number; requiresChampionHit?: boolean };
   strikes?: { count: number[]; perBonusAtkSpe?: number };
-  mark?: { turns: number; detonateOn?: 'aa' | 'ability' | 'both'; damageOnDetonate?: boolean; refundMana?: { flat?: number[]; refundCost?: boolean } };
+  mark?: { turns: number; detonateOn?: 'aa' | 'ability' | 'both'; damageOnDetonate?: boolean; refundMana?: { flat?: number[]; refundCost?: boolean }; applyOnAbilityHit?: boolean; name?: string };
   cleanse?: boolean;
   returnStrike?: { type: 'true' | 'magic' | 'physical' };
   takedownHeal?: { flat?: number[]; flatByLevel?: boolean; ratios?: { stat: CastPoolStat; values: number[] }[]; champion?: boolean };
@@ -950,6 +958,19 @@ export function parseAbilityMechanics(value: unknown): ChampionAbilityMechanics 
     if (stacks.requiresDamage === false) out.stacks.requiresDamage = false;
     if (stacks.onChampionCc === true) out.stacks.onChampionCc = true;
     if (stacks.consumeAtMax === true) out.stacks.consumeAtMax = true;
+    if (stacks.countersPerTarget === true) out.stacks.countersPerTarget = true;
+    if (stacks.onMaxDamage === true) out.stacks.onMaxDamage = true;
+    if (stacks.onMaxDamage === false) out.stacks.onMaxDamage = false;
+    if (Array.isArray(stacks.onMaxSelfStats) && stacks.onMaxSelfStats.length) {
+      out.stacks.onMaxSelfStats = stacks.onMaxSelfStats.slice(0, 6).map((entry: unknown, index: number) => {
+        const row = mechanicsObject(entry, `mechanics.stacks.onMaxSelfStats[${index}]`) ?? {};
+        const stat = typeof row.stat === 'string' ? row.stat.trim().slice(0, 40) : '';
+        if (!stat) throw new HttpError(400, `mechanics.stacks.onMaxSelfStats[${index}].stat es obligatorio`);
+        const values = mechanicsList(row.values, `mechanics.stacks.onMaxSelfStats[${index}].values`, -999, 999, false);
+        if (!values) throw new HttpError(400, `mechanics.stacks.onMaxSelfStats[${index}].values: pon los valores por rango`);
+        return { stat, values, turns: mechanicsInt(row.turns, `mechanics.stacks.onMaxSelfStats[${index}].turns`, 1, 99) };
+      });
+    }
     if (stacks.onMaxCooldown !== undefined && stacks.onMaxCooldown !== null) out.stacks.onMaxCooldown = mechanicsInt(stacks.onMaxCooldown, 'mechanics.stacks.onMaxCooldown', 1, 99);
     if (stacks.armArmedAaAtMax === true) out.stacks.armArmedAaAtMax = true;
     if (stacks.armArmedAaTurns !== undefined && stacks.armArmedAaTurns !== null) out.stacks.armArmedAaTurns = mechanicsInt(stacks.armArmedAaTurns, 'mechanics.stacks.armArmedAaTurns', 1, 99);
@@ -971,7 +992,8 @@ export function parseAbilityMechanics(value: unknown): ChampionAbilityMechanics 
         for (const [index, entry] of value.entries()) {
           const row = mechanicsObject(entry, `${field}[${index}]`);
           if (!row) continue;
-          const stat = typeof row.stat === 'string' ? row.stat.trim() : '';
+          let stat = typeof row.stat === 'string' ? row.stat.trim() : '';
+          if (stat === 'maxHp') stat = 'hp';
           if (stat !== 'hp' && stat !== 'ap' && stat !== 'ad' && stat !== 'bonusAd' && stat !== 'bonusAp') throw new HttpError(400, `${field}[${index}].stat no válido`);
           const values = mechanicsList(row.values, `${field}[${index}].values`, 0, 1000, false);
           if (!values) throw new HttpError(400, `${field}[${index}].values: pon los valores por rango`);
@@ -1175,6 +1197,7 @@ export function parseAbilityMechanics(value: unknown): ChampionAbilityMechanics 
     if (selfStatus.blocksRecast === true) out.selfStatus.blocksRecast = true;
     if (selfStatus.cancelable === true) out.selfStatus.cancelable = true;
     if (selfStatus.blocksAbility === false) out.selfStatus.blocksAbility = false;
+    if (selfStatus.requiresSelfInArea === true) out.selfStatus.requiresSelfInArea = true;
     const reduction = mechanicsList(selfStatus.damageReductionValues, 'mechanics.selfStatus.damageReductionValues', 0, 100, false);
     if (reduction) out.selfStatus.damageReductionValues = reduction;
     if (Array.isArray(selfStatus.stats)) {
@@ -1221,13 +1244,98 @@ export function parseAbilityMechanics(value: unknown): ChampionAbilityMechanics 
       throw new HttpError(400, 'mechanics.selfStatus: pon amount, pct o valores por rango');
     }
   }
+  if (Array.isArray(source.selfStatuses) && source.selfStatuses.length) {
+    out.selfStatuses = source.selfStatuses.slice(0, 8).map((entry: unknown, index: number) => {
+      const row = mechanicsObject(entry, `mechanics.selfStatuses[${index}]`) ?? {};
+      const name = typeof row.name === 'string' ? row.name.trim().slice(0, 60) : '';
+      if (!name) throw new HttpError(400, `mechanics.selfStatuses[${index}].name: pon el nombre del estado`);
+      const parsed: NonNullable<ChampionAbilityMechanics['selfStatus']> = { name, turns: mechanicsInt(row.turns, `mechanics.selfStatuses[${index}].turns`, 1, 99) };
+      if (row.stat !== undefined && row.stat !== null && row.stat !== '') {
+        if (typeof row.stat !== 'string' || !(SHEET_STAT_KEYS as readonly string[]).includes(row.stat)) throw new HttpError(400, `mechanics.selfStatuses[${index}].stat no es una stat de la ficha`);
+        parsed.stat = row.stat as SheetStatKey;
+      }
+      if (row.value !== undefined && row.value !== null) parsed.value = mechanicsInt(row.value, `mechanics.selfStatuses[${index}].value`, 1, 999);
+      const pctValues = mechanicsList(row.pctValues, `mechanics.selfStatuses[${index}].pctValues`, -999, 999, false);
+      if (pctValues) parsed.pctValues = pctValues;
+      const amountValues = mechanicsList(row.amountValues, `mechanics.selfStatuses[${index}].amountValues`, -999, 999, false);
+      if (amountValues) parsed.amountValues = amountValues;
+      if (typeof row.amount === 'number' && Number.isFinite(row.amount) && row.amount !== 0) parsed.amount = row.amount;
+      if (typeof row.pct === 'number' && Number.isFinite(row.pct) && row.pct !== 0) parsed.pct = row.pct;
+      if (row.blocksAbility === false) parsed.blocksAbility = false;
+      if (row.cancelable === true) parsed.cancelable = true;
+      if (row.requiresSelfInArea === true) parsed.requiresSelfInArea = true;
+      if (row.requiresChampionHit === true) parsed.requiresChampionHit = true;
+      if (row.blocksRecast === true) parsed.blocksRecast = true;
+      if (Array.isArray(row.stats)) {
+        parsed.stats = row.stats.slice(0, 8).map((item: unknown, statIndex: number) => {
+          const statRow = mechanicsObject(item, `mechanics.selfStatuses[${index}].stats[${statIndex}]`) ?? {};
+          const stat = typeof statRow.stat === 'string' ? statRow.stat.trim() : '';
+          if (!stat) throw new HttpError(400, `mechanics.selfStatuses[${index}].stats[${statIndex}].stat es obligatorio`);
+          const one: NonNullable<NonNullable<ChampionAbilityMechanics['selfStatus']>['stats']>[number] = { stat };
+          if (typeof statRow.amount === 'number' && Number.isFinite(statRow.amount)) one.amount = statRow.amount;
+          if (typeof statRow.pct === 'number' && Number.isFinite(statRow.pct)) one.pct = statRow.pct;
+          const av = mechanicsList(statRow.amountValues, `mechanics.selfStatuses[${index}].stats[${statIndex}].amountValues`, -99999, 99999, false);
+          if (av) one.amountValues = av;
+          const pv = mechanicsList(statRow.pctValues, `mechanics.selfStatuses[${index}].stats[${statIndex}].pctValues`, -999, 999, false);
+          if (pv) one.pctValues = pv;
+          return one;
+        });
+      }
+      return parsed;
+    });
+  }
+  if (source.selfInArea === true) out.selfInArea = true;
+  if (typeof source.selfInAreaLabel === 'string' && source.selfInAreaLabel.trim()) out.selfInAreaLabel = source.selfInAreaLabel.trim().slice(0, 80);
+  if (source.trailTurns !== undefined && source.trailTurns !== null) out.trailTurns = mechanicsInt(source.trailTurns, 'mechanics.trailTurns', 1, 99);
+  const centerEffect = mechanicsObject(source.centerEffect, 'mechanics.centerEffect');
+  if (centerEffect) {
+    const name = typeof centerEffect.name === 'string' ? centerEffect.name.trim().slice(0, 80) : '';
+    if (!name) throw new HttpError(400, 'mechanics.centerEffect.name: pon el nombre del estado');
+    const parsed: NonNullable<ChampionAbilityMechanics['centerEffect']> = { name, duration: mechanicsInt(centerEffect.duration, 'mechanics.centerEffect.duration', 1, 99) };
+    const values = mechanicsList(centerEffect.values, 'mechanics.centerEffect.values', -999, 999, false);
+    if (values) parsed.values = values;
+    out.centerEffect = parsed;
+  }
   const empoweredAa = mechanicsObject(source.empoweredAa, 'mechanics.empoweredAa');
   if (empoweredAa) {
     const healHpPct = mechanicsList(empoweredAa.healHpPct, 'mechanics.empoweredAa.healHpPct', 0, 100, false);
     const cooldown = mechanicsList(empoweredAa.cooldown, 'mechanics.empoweredAa.cooldown', 1, 99, true);
-    if (!healHpPct) throw new HttpError(400, 'mechanics.empoweredAa.healHpPct: pon el % de cura por tramo o rango');
     if (!cooldown) throw new HttpError(400, 'mechanics.empoweredAa.cooldown: pon el CD por tramo o rango');
-    out.empoweredAa = { healHpPct, cooldown };
+    const parseEmpHeal = (value: unknown): NonNullable<NonNullable<ChampionAbilityMechanics['empoweredAa']>['heal']> | undefined => {
+      const row = mechanicsObject(value, 'mechanics.empoweredAa.heal');
+      if (!row) return undefined;
+      const heal: NonNullable<NonNullable<ChampionAbilityMechanics['empoweredAa']>['heal']> = {};
+      const parseRatios = (raw: unknown, field: string) => {
+        if (!Array.isArray(raw) || !raw.length) return undefined;
+        const list: { stat: CastPoolStat; values: number[] }[] = [];
+        for (const [index, entry] of raw.entries()) {
+          const item = mechanicsObject(entry, `${field}[${index}]`);
+          if (!item) continue;
+          let stat = typeof item.stat === 'string' ? item.stat.trim() : '';
+          if (stat === 'maxHp') stat = 'hp';
+          if (stat !== 'hp' && stat !== 'ap' && stat !== 'ad' && stat !== 'bonusAd' && stat !== 'bonusAp') throw new HttpError(400, `${field}[${index}].stat no válido`);
+          const values = mechanicsList(item.values, `${field}[${index}].values`, 0, 1000, false);
+          if (!values) throw new HttpError(400, `${field}[${index}].values: pon los valores por rango`);
+          list.push({ stat: stat as CastPoolStat, values });
+        }
+        return list.length ? list : undefined;
+      };
+      const selfRatios = parseRatios(row.selfRatios, 'mechanics.empoweredAa.heal.selfRatios');
+      if (selfRatios) heal.selfRatios = selfRatios;
+      const healFlat = mechanicsList(row.flat, 'mechanics.empoweredAa.heal.flat', 0, 100000, false);
+      if (healFlat) heal.flat = healFlat;
+      if (row.flatByLevel === true) heal.flatByLevel = true;
+      return (heal.selfRatios || heal.flat) ? heal : undefined;
+    };
+    const heal = parseEmpHeal(empoweredAa.heal);
+    if (!healHpPct && !heal && empoweredAa.applyAbilityDamage !== true) {
+      throw new HttpError(400, 'mechanics.empoweredAa: pon cura (heal / healHpPct) o applyAbilityDamage');
+    }
+    out.empoweredAa = { cooldown };
+    if (healHpPct) out.empoweredAa.healHpPct = healHpPct;
+    if (heal) out.empoweredAa.heal = heal;
+    if (empoweredAa.healPerTarget === true) out.empoweredAa.healPerTarget = true;
+    if (empoweredAa.applyAbilityDamage === true) out.empoweredAa.applyAbilityDamage = true;
     if (empoweredAa.hpSource !== undefined && empoweredAa.hpSource !== null && empoweredAa.hpSource !== '') {
       if (empoweredAa.hpSource !== 'max' && empoweredAa.hpSource !== 'current' && empoweredAa.hpSource !== 'missing' && empoweredAa.hpSource !== 'bonus') {
         throw new HttpError(400, 'mechanics.empoweredAa.hpSource tiene que ser max, current, missing o bonus');
@@ -1237,6 +1345,7 @@ export function parseAbilityMechanics(value: unknown): ChampionAbilityMechanics 
     if (empoweredAa.byLevel === true) out.empoweredAa.byLevel = true;
     if (empoweredAa.reduceOnAbility !== undefined && empoweredAa.reduceOnAbility !== null) out.empoweredAa.reduceOnAbility = mechanicsInt(empoweredAa.reduceOnAbility, 'mechanics.empoweredAa.reduceOnAbility', 1, 99);
     if (empoweredAa.reduceOnStruck !== undefined && empoweredAa.reduceOnStruck !== null) out.empoweredAa.reduceOnStruck = mechanicsInt(empoweredAa.reduceOnStruck, 'mechanics.empoweredAa.reduceOnStruck', 1, 99);
+    if (empoweredAa.reduceOnAuto !== undefined && empoweredAa.reduceOnAuto !== null) out.empoweredAa.reduceOnAuto = mechanicsInt(empoweredAa.reduceOnAuto, 'mechanics.empoweredAa.reduceOnAuto', 1, 99);
     if (empoweredAa.skipAboveHpPct !== undefined && empoweredAa.skipAboveHpPct !== null) out.empoweredAa.skipAboveHpPct = mechanicsInt(empoweredAa.skipAboveHpPct, 'mechanics.empoweredAa.skipAboveHpPct', 1, 100);
   }
   const trap = mechanicsObject(source.trap, 'mechanics.trap');
@@ -1245,6 +1354,7 @@ export function parseAbilityMechanics(value: unknown): ChampionAbilityMechanics 
     const trapName = typeof trap.name === 'string' ? trap.name.trim().slice(0, 60) : '';
     if (trapName) out.trap.name = trapName;
     if (trap.applyOnPlace === true) out.trap.applyOnPlace = true;
+    if (trap.damageOnDetonate === false) out.trap.damageOnDetonate = false;
     const eruptName = typeof trap.eruptEffectName === 'string' ? trap.eruptEffectName.trim().slice(0, 80) : '';
     if (eruptName) out.trap.eruptEffectName = eruptName;
     if (trap.eruptEffectDuration !== undefined && trap.eruptEffectDuration !== null) {
@@ -1408,6 +1518,9 @@ export function parseAbilityMechanics(value: unknown): ChampionAbilityMechanics 
       aa.apPer100 = per;
     }
     if (armed.explodeFromLevel !== undefined && armed.explodeFromLevel !== null) aa.explodeFromLevel = mechanicsInt(armed.explodeFromLevel, 'mechanics.armedAa.explodeFromLevel', 1, 20);
+    if (armed.charges !== undefined && armed.charges !== null) aa.charges = mechanicsInt(armed.charges, 'mechanics.armedAa.charges', 1, 9);
+    if (armed.effectOnLastCharge === false) aa.effectOnLastCharge = false;
+    if (armed.applyDamageOnUse === true) aa.applyDamageOnUse = true;
     if (!aa.ad && !aa.ap && !aa.effectName && !aa.effect && !aa.hp && aa.apPer100 == null) throw new HttpError(400, 'mechanics.armedAa: pon daño, % de vida o un estado');
     out.armedAa = aa;
   }
@@ -1512,6 +1625,8 @@ export function parseAbilityMechanics(value: unknown): ChampionAbilityMechanics 
     if (mark.detonateOn === 'aa' || mark.detonateOn === 'ability' || mark.detonateOn === 'both') parsed.detonateOn = mark.detonateOn;
     if (mark.damageOnDetonate === false) parsed.damageOnDetonate = false;
     else parsed.damageOnDetonate = true;
+    if (mark.applyOnAbilityHit === true) parsed.applyOnAbilityHit = true;
+    if (typeof mark.name === 'string' && mark.name.trim()) parsed.name = mark.name.trim().slice(0, 80);
     const refund = mechanicsObject(mark.refundMana, 'mechanics.mark.refundMana');
     if (refund) {
       const refundMana: NonNullable<NonNullable<ChampionAbilityMechanics['mark']>['refundMana']> = {};
@@ -1668,6 +1783,21 @@ function parseDamage(value: unknown): ChampionAbilityDamage | undefined {
   if (source.hpFrom !== undefined && source.hpFrom !== null && source.hpFrom !== '') {
     if (source.hpFrom !== 'target' && source.hpFrom !== 'self') throw new HttpError(400, 'damage.hpFrom tiene que ser target o self');
     damage.hpFrom = source.hpFrom;
+  }
+  if (source.hpAdPer100 !== undefined && source.hpAdPer100 !== null) {
+    const per = source.hpAdPer100;
+    if (typeof per !== 'number' || !Number.isFinite(per) || per < 0 || per > 100) throw new HttpError(400, 'damage.hpAdPer100 tiene que ser un número entre 0 y 100');
+    damage.hpAdPer100 = per;
+  }
+  if (source.hpAdPer !== undefined && source.hpAdPer !== null) {
+    const step = source.hpAdPer;
+    if (typeof step !== 'number' || !Number.isFinite(step) || step <= 0 || step > 1000) {
+      throw new HttpError(400, 'damage.hpAdPer tiene que ser un número mayor que 0 y como máximo 1000');
+    }
+    damage.hpAdPer = step;
+  }
+  if (source.hpAdSource === 'total' || source.hpAdSource === 'bonus' || source.hpAdSource === 'itemDiceAvg') {
+    damage.hpAdSource = source.hpAdSource;
   }
   return Object.keys(damage).length ? damage : undefined;
 }

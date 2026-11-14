@@ -65,7 +65,7 @@ export type EffectRule = {
   maxStacks?: number;
   /** Bonus de stat permanente (sin turnos en combate). */
   permanent?: boolean;
-  /** Solo si el portador es cuerpo a cuerpo (rango total 1) o a distancia; ausente = siempre. */
+  /** Solo si el portador es cuerpo a cuerpo (rango total ≤ 1, el 0 cuenta) o a distancia (rango > 1); ausente = siempre. */
   onlyIf?: 'melee' | 'ranged';
   note?: string;
 };
