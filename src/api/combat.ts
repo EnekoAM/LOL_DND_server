@@ -1,7 +1,7 @@
 import { HttpError } from '../errors';
 import { assertWriteAccess, withErrors, type ApiRequest } from '../http';
 import { endCombatAndResetTrackers, getCombat, replaceCombat, updatePlayer } from '../store';
-import { combatBonuses, parseCombatState, parsePlayerPatch, type CombatParticipant } from '../validate';
+import { combatBonuses, parseCombatState, parsePlayerPatch, type CombatParticipant, type CombatState } from '../validate';
 import { withLive } from '../livePublish';
 
 function assertAdminRole(req: ApiRequest): void {
@@ -25,6 +25,44 @@ function requestPlayer(req: ApiRequest): string | undefined {
   } catch {
     throw new HttpError(400, 'Cabecera X-App-Player inválida');
   }
+}
+
+/** Participante player de quien hace la petición (X-App-Player), si está en el combate. */
+function requesterParticipant(req: ApiRequest, combat: { participants: CombatParticipant[] }): CombatParticipant | undefined {
+  const me = requestPlayer(req)?.toLocaleLowerCase('es');
+  if (!me) return undefined;
+  return combat.participants.find(p => p.kind === 'player' && (p.sourceId ?? p.name ?? '').trim().toLocaleLowerCase('es') === me);
+}
+
+/**
+ * Campos de cada participante que un player (no admin) que está en el combate puede cambiar al usar
+ * sus habilidades / objetos: vida, recurso, estados, bonus, derrotado, CD, fases y acciones.
+ * La estructura del combate (quién está, orden, ronda, turno, fichas, iniciativa) sigue siendo solo del admin.
+ */
+const PLAYER_WRITABLE_KEYS = [
+  'hp', 'tempHp', 'shield', 'currentResource',
+  'effects', 'bonuses', 'defeated',
+  'cooldowns', 'activeEffects', 'abilityPhases',
+  'actionsLeft', 'actionsExtra', 'vigor', 'movementUsed',
+] as const;
+
+/** PUT de un player: sobre el combate actual solo se aplican los campos permitidos de cada participante. */
+function mergePlayerCombat(current: CombatState, next: CombatState): CombatState {
+  const sent = new Map(next.participants.map(p => [p.id, p]));
+  return {
+    ...current,
+    participants: current.participants.map(p => {
+      const incoming = sent.get(p.id) as Record<string, unknown> | undefined;
+      if (!incoming) return p;
+      const out: Record<string, unknown> = { ...p };
+      for (const key of PLAYER_WRITABLE_KEYS) {
+        if (key in incoming) out[key] = incoming[key];
+        // Sin el campo: quitado (bonus/estados/derrotado). Los ocultos a players se conservan si no llegan.
+        else if (!(ENEMY_REDACT_KEYS as readonly string[]).includes(key)) delete out[key];
+      }
+      return out as CombatParticipant;
+    }),
+  };
 }
 
 function isHpPatch(body: unknown): boolean {
@@ -66,7 +104,9 @@ async function patchCombatHp(req: ApiRequest) {
   const playerName = participant.kind === 'player' ? (participant.sourceId ?? participant.name).trim() : '';
   if (!admin) {
     const me = requestPlayer(req);
-    if (!playerName || !me || me.toLocaleLowerCase('es') !== playerName.toLocaleLowerCase('es')) {
+    const own = !!playerName && !!me && me.toLocaleLowerCase('es') === playerName.toLocaleLowerCase('es');
+    // Un player que está en el combate aplica a los demás el resultado de sus habilidades / objetos (daño, curas, escudos).
+    if (!own && !requesterParticipant(req, combat)) {
       throw new HttpError(403, resource ? 'Solo puedes editar tu propio recurso' : 'Solo puedes editar tu propia vida');
     }
   }
@@ -159,7 +199,9 @@ async function patchCombatBonuses(req: ApiRequest, body: Record<string, unknown>
   if (headerValue(req, 'x-app-role') !== 'admin') {
     const playerName = participant.kind === 'player' ? (participant.sourceId ?? participant.name).trim() : '';
     const me = requestPlayer(req);
-    if (!playerName || !me || me.toLocaleLowerCase('es') !== playerName.toLocaleLowerCase('es')) {
+    const own = !!playerName && !!me && me.toLocaleLowerCase('es') === playerName.toLocaleLowerCase('es');
+    // Debuffs / marcas de sus habilidades sobre otros: vale si el player está en el combate.
+    if (!own && !requesterParticipant(req, combat)) {
       throw new HttpError(403, 'Solo puedes editar tus propios bonus');
     }
   }
@@ -179,6 +221,9 @@ const isAdminRequest = (req: ApiRequest): boolean => {
   const role = Array.isArray(header) ? header[0] : header;
   return role?.trim() === 'admin';
 };
+
+/** Combate completo (sin redactar): admin, o un player que está en él (sus habilidades necesitan la vida / ficha de los objetivos; la pantalla la sigue ocultando). */
+const fullView = (req: ApiRequest, combat: { participants: CombatParticipant[] }): boolean => isAdminRequest(req) || !!requesterParticipant(req, combat);
 
 /**
  * Para players: oculta vida, maná, stats y la ficha de quien no sea un personaje jugador
@@ -214,7 +259,8 @@ export default withLive(
   { PUT: ['combat', 'players'], PATCH: ['combat', 'players'], POST: ['combat', 'players'] },
   withErrors(async (req, res) => {
     if (req.method === 'GET') {
-      res.status(200).json(redactCombat(await getCombat(), isAdminRequest(req)));
+      const combat = await getCombat();
+      res.status(200).json(redactCombat(combat, fullView(req, combat)));
       return;
     }
     if (req.method === 'POST') {
@@ -226,12 +272,18 @@ export default withLive(
     if (req.method === 'PATCH' && isHpPatch(req.body)) {
       assertWriteAccess(req);
       const result = await patchCombatHp(req);
-      res.status(200).json({ ...result, combat: redactCombat(result.combat, isAdminRequest(req)) });
+      res.status(200).json({ ...result, combat: redactCombat(result.combat, fullView(req, result.combat)) });
       return;
     }
     if (req.method === 'PUT' || req.method === 'PATCH') {
       assertWriteAccess(req);
-      assertAdminRole(req);
+      if (!isAdminRequest(req)) {
+        // Player en el combate: solo los resultados de sus acciones (campos permitidos), sin tocar la estructura.
+        const current = await getCombat();
+        if (!requesterParticipant(req, current)) assertAdminRole(req);
+        res.status(200).json(await replaceCombat(parseCombatState(mergePlayerCombat(current, parseCombatState(req.body)))));
+        return;
+      }
       const next = parseCombatState(req.body);
       const current = await getCombat();
       // Cualquier vuelta a Preparación desde combate activo: reset completo.

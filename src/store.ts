@@ -6,7 +6,7 @@ import { RANKED_SLOTS, canRaise, normalizeRanks, ultRankCap, unassignedPoints, t
 import { LOOT_RULE_KEYS, parseLootRules } from './validate';
 import { FAQ_SEED } from './faqSeed';
 import { deleteNotesFor } from './playerNotes';
-import type { RelationInput, RelationPatch, RelationRef, AugmentInput, NpcInput, FaqInput, FaqPatch, MapPoiInput, MapPoiKind, MapPoiPatch, ChampionAbility, ChampionFieldsPatch, CombatState, HistoryKind, ItemUpdate, LootRules, LootRulesPatch, PartyPatch, PlayerPatch, PlayerReplace, PlayerSheet, RolePatch, RollRecord, ShopOrder, TicketInput, TicketStatus } from './validate';
+import type { RelationInput, RelationPatch, RelationRef, AugmentInput, NpcInput, FaqInput, FaqPatch, MapPoiInput, MapPoiKind, MapPoiPatch, ChampionAbility, ChampionFieldsPatch, CombatState, HistoryKind, ItemUpdate, LootRules, LootRulesPatch, PartyPatch, PlayerPatch, PlayerReplace, PlayerSheet, RolePatch, RollRecord, ShopOrder, TicketCommentInput, TicketInput, TicketStatus } from './validate';
 
 const PUBLIC = { projection: { _id: 0, order: 0 } };
 const CI = { locale: 'es', strength: 2 } as const;
@@ -1580,6 +1580,8 @@ export async function revertHistory(kind: HistoryKind, id: string) {
   };
 }
 
+export type TicketComment = { id: string; text: string; author?: string; createdAt: string };
+
 export type TicketEntry = {
   id: string;
   title: string;
@@ -1587,8 +1589,26 @@ export type TicketEntry = {
   author?: string;
   /** Docs viejos sin estado se leen como 'pending'. */
   status: TicketStatus;
+  /** Archivada: no sale en las listas normales (solo completadas / rechazadas). */
+  archived?: boolean;
+  /** Comentarios (solo se añaden mientras está pendiente), del más viejo al más nuevo. */
+  comments?: TicketComment[];
   createdAt: string;
 };
+
+function toTicketComment(raw: unknown): TicketComment | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const source = raw as Record<string, unknown>;
+  if (typeof source.text !== 'string' || !source.text.trim()) return null;
+  const created = source.createdAt instanceof Date ? source.createdAt : new Date(typeof source.createdAt === 'string' ? source.createdAt : 0);
+  const comment: TicketComment = {
+    id: typeof source.id === 'string' ? source.id : String(source.id ?? ''),
+    text: source.text,
+    createdAt: Number.isNaN(created.getTime()) ? new Date(0).toISOString() : created.toISOString(),
+  };
+  if (typeof source.author === 'string' && source.author.trim()) comment.author = source.author.trim();
+  return comment;
+}
 
 function toTicket(doc: Document): TicketEntry {
   const created = doc.createdAt instanceof Date
@@ -1604,6 +1624,11 @@ function toTicket(doc: Document): TicketEntry {
     createdAt: created.toISOString(),
   };
   if (typeof doc.author === 'string' && doc.author.trim()) entry.author = doc.author.trim();
+  if (doc.archived === true) entry.archived = true;
+  if (Array.isArray(doc.comments)) {
+    const comments = doc.comments.map(toTicketComment).filter((item: TicketComment | null): item is TicketComment => !!item);
+    if (comments.length) entry.comments = comments.sort((a: TicketComment, b: TicketComment) => a.createdAt.localeCompare(b.createdAt));
+  }
   return entry;
 }
 
@@ -1626,6 +1651,51 @@ export async function updateTicketStatus(id: string, status: TicketStatus): Prom
   const tickets = await collection('tickets');
   const _id = new ObjectId(id);
   const result = await tickets.updateOne({ _id }, { $set: { status, statusAt: new Date() } });
+  if (result.matchedCount === 0) throw new HttpError(404, 'No existe esa sugerencia');
+  const doc = await tickets.findOne({ _id });
+  if (!doc) throw new HttpError(404, 'No existe esa sugerencia');
+  return toTicket(doc);
+}
+
+export const TICKET_COMMENTS_MAX = 100;
+
+/** Añade un comentario (no se editan ni se borran). Solo en sugerencias pendientes y no archivadas. */
+export async function addTicketComment(id: string, input: TicketCommentInput): Promise<TicketEntry> {
+  if (!ObjectId.isValid(id)) throw new HttpError(404, 'No existe esa sugerencia');
+  const tickets = await collection('tickets');
+  const _id = new ObjectId(id);
+  const comment: Document = { id: new ObjectId().toHexString(), text: input.text, createdAt: new Date() };
+  if (input.author) comment.author = input.author;
+  // Docs viejos sin estado cuentan como pendientes.
+  const filter: Document = {
+    _id,
+    $or: [{ status: 'pending' }, { status: { $exists: false } }],
+    archived: { $ne: true },
+    [`comments.${TICKET_COMMENTS_MAX - 1}`]: { $exists: false },
+  };
+  const result = await tickets.updateOne(filter, { $push: { comments: comment } } as Document);
+  if (result.matchedCount === 0) {
+    const doc = await tickets.findOne({ _id });
+    if (!doc) throw new HttpError(404, 'No existe esa sugerencia');
+    if (Array.isArray(doc.comments) && doc.comments.length >= TICKET_COMMENTS_MAX) {
+      throw new HttpError(409, `Esta sugerencia ya tiene ${TICKET_COMMENTS_MAX} comentarios`);
+    }
+    throw new HttpError(409, 'Solo se puede comentar en sugerencias pendientes');
+  }
+  const doc = await tickets.findOne({ _id });
+  if (!doc) throw new HttpError(404, 'No existe esa sugerencia');
+  return toTicket(doc);
+}
+
+/** Archivar / desarchivar una sugerencia (solo admin, lo comprueba la API). No borra nada. */
+export async function setTicketArchived(id: string, archived: boolean): Promise<TicketEntry> {
+  if (!ObjectId.isValid(id)) throw new HttpError(404, 'No existe esa sugerencia');
+  const tickets = await collection('tickets');
+  const _id = new ObjectId(id);
+  const update = archived
+    ? { $set: { archived: true, archivedAt: new Date() } }
+    : { $unset: { archived: '', archivedAt: '' } };
+  const result = await tickets.updateOne({ _id }, update);
   if (result.matchedCount === 0) throw new HttpError(404, 'No existe esa sugerencia');
   const doc = await tickets.findOne({ _id });
   if (!doc) throw new HttpError(404, 'No existe esa sugerencia');

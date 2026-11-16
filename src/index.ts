@@ -23,6 +23,7 @@ import roleById from './handlers/roleById';
 import roles from './api/roles/index';
 import shop from './api/shop';
 import tickets from './api/tickets';
+import combatNotes from './api/combat-notes';
 import type { ApiHandler, ApiRequest, ApiResponse } from './http';
 import { attachLiveSync } from './live';
 import { ablyKey } from './livePublish';
@@ -110,6 +111,10 @@ app.post('/api/history', adapt(history));
 app.get('/api/tickets', adapt(tickets));
 app.post('/api/tickets', adapt(tickets));
 app.patch('/api/tickets', adapt(tickets));
+// Notas públicas del combate: leer y escribir cualquiera; borrar las propias (admin: todas / vaciar).
+app.get('/api/combat-notes', adapt(combatNotes));
+app.post('/api/combat-notes', adapt(combatNotes));
+app.delete('/api/combat-notes', adapt(combatNotes));
 app.delete('/api/tickets', adapt(tickets));
 // Catálogo de aumentos: leer cualquiera; crear/editar/borrar solo admin (X-App-Role: admin).
 app.get('/api/augments', adapt(augments));

@@ -2694,6 +2694,33 @@ export function parseTicketCreate(body: unknown): TicketInput {
   return author ? { title, text, author } : { title, text };
 }
 
+export const TICKET_COMMENT_MAX = 600;
+
+export type TicketCommentInput = { text: string; author?: string };
+
+/**
+ * POST /api/tickets con { commentOn: id, text, author? }: comentario (solo se añade; no se edita ni se borra).
+ * null si el cuerpo no trae commentOn (entonces es una sugerencia nueva).
+ */
+export function parseTicketComment(body: unknown): { id: string; comment: TicketCommentInput } | null {
+  const source = asObject(body);
+  if (source.commentOn === undefined) return null;
+  if (typeof source.commentOn !== 'string' || !source.commentOn.trim()) throw new HttpError(400, 'Falta la sugerencia');
+  if (typeof source.text !== 'string' || !source.text.trim()) throw new HttpError(400, 'Escribe el comentario');
+  const text = source.text.trim();
+  if (text.length > TICKET_COMMENT_MAX) {
+    throw new HttpError(400, `El comentario admite como máximo ${TICKET_COMMENT_MAX} caracteres`);
+  }
+  if (source.author !== undefined && source.author !== null && typeof source.author !== 'string') {
+    throw new HttpError(400, 'El autor tiene que ser un texto');
+  }
+  const author = typeof source.author === 'string' ? source.author.trim() : '';
+  if (author.length > TICKET_AUTHOR_MAX) {
+    throw new HttpError(400, `El autor admite como máximo ${TICKET_AUTHOR_MAX} caracteres`);
+  }
+  return { id: source.commentOn.trim(), comment: author ? { text, author } : { text } };
+}
+
 export const TICKET_STATUSES = ['pending', 'accepted', 'rejected', 'completed'] as const;
 export type TicketStatus = (typeof TICKET_STATUSES)[number];
 
@@ -2709,6 +2736,15 @@ export function parseTicketStatusUpdate(body: unknown): { id: string; status: Ti
     throw new HttpError(400, 'Estado no válido (pending, accepted, rejected o completed)');
   }
   return { id: source.id.trim(), status: source.status };
+}
+
+/** PATCH /api/tickets con { id, archived: boolean }: archivar / desarchivar (null si el cuerpo no trae archived). */
+export function parseTicketArchiveUpdate(body: unknown): { id: string; archived: boolean } | null {
+  const source = asObject(body);
+  if (source.archived === undefined) return null;
+  if (typeof source.archived !== 'boolean') throw new HttpError(400, 'archived tiene que ser true o false');
+  if (typeof source.id !== 'string' || !source.id.trim()) throw new HttpError(400, 'Falta la sugerencia');
+  return { id: source.id.trim(), archived: source.archived };
 }
 
 /** Id de la sugerencia a borrar: ?id= o { id } en el cuerpo. */
