@@ -68,7 +68,7 @@ function mergePlayerCombat(current: CombatState, next: CombatState): CombatState
 function isHpPatch(body: unknown): boolean {
   if (!body || typeof body !== 'object' || Array.isArray(body)) return false;
   const op = (body as Record<string, unknown>).op;
-  return op === 'hp' || op === 'resource' || op === 'actions' || op === 'bonuses';
+  return op === 'hp' || op === 'resource' || op === 'actions' || op === 'bonuses' || op === 'initiative';
 }
 
 function hpInt(value: unknown, field: string): number {
@@ -90,6 +90,7 @@ async function patchCombatHp(req: ApiRequest) {
   }
   if (body.op === 'actions') return patchCombatActions(req, body);
   if (body.op === 'bonuses') return patchCombatBonuses(req, body);
+  if (body.op === 'initiative') return patchCombatInitiative(req, body);
   const resource = body.op === 'resource';
   const current = hpInt(body.current, 'current');
   const max = body.max === undefined || body.max === null ? undefined : hpInt(body.max, 'max');
@@ -214,6 +215,40 @@ async function patchCombatBonuses(req: ApiRequest, body: Record<string, unknown>
     }),
   };
   return { combat: await replaceCombat(parseCombatState(next)) };
+}
+
+/** Iniciativa permitida (d20 + bonus, con margen). */
+const INITIATIVE_MIN = -99;
+const INITIATIVE_MAX = 999;
+
+/** Mismo orden que el cliente (sortByInitiative): iniciativa de mayor a menor y, si empatan, por nombre. */
+const byInitiative = (list: CombatParticipant[]): CombatParticipant[] =>
+  [...list].sort((a, b) => (b.initiative !== a.initiative ? b.initiative - a.initiative : a.name.localeCompare(b.name, 'es')));
+
+/**
+ * op initiative: cambia la iniciativa de un participante.
+ * Admin: de cualquiera. User: solo la de su propio player.
+ * Reordena la lista (como cuando la cambia el admin) y el turno sigue en quien lo tenía.
+ */
+async function patchCombatInitiative(req: ApiRequest, body: Record<string, unknown>) {
+  const value = body.initiative;
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < INITIATIVE_MIN || value > INITIATIVE_MAX) {
+    throw new HttpError(400, `initiative tiene que ser un entero entre ${INITIATIVE_MIN} y ${INITIATIVE_MAX}`);
+  }
+  const combat = await getCombat();
+  const participant = combat.participants.find(p => p.id === body.participantId);
+  if (!participant) throw new HttpError(404, 'Ese participante ya no está en el combate');
+  if (headerValue(req, 'x-app-role') !== 'admin') {
+    const playerName = participant.kind === 'player' ? (participant.sourceId ?? participant.name).trim() : '';
+    const me = requestPlayer(req);
+    if (!playerName || !me || me.toLocaleLowerCase('es') !== playerName.toLocaleLowerCase('es')) {
+      throw new HttpError(403, 'Solo puedes editar tu propia iniciativa');
+    }
+  }
+  const turnId = byInitiative(combat.participants)[combat.turnIndex]?.id;
+  const sorted = byInitiative(combat.participants.map(p => (p.id === participant.id ? { ...p, initiative: value } : p)));
+  const turnIndex = turnId ? Math.max(0, sorted.findIndex(p => p.id === turnId)) : 0;
+  return { combat: await replaceCombat(parseCombatState({ ...combat, participants: sorted, turnIndex })) };
 }
 
 const isAdminRequest = (req: ApiRequest): boolean => {

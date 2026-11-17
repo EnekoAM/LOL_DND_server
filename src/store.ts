@@ -6,6 +6,7 @@ import { RANKED_SLOTS, canRaise, normalizeRanks, ultRankCap, unassignedPoints, t
 import { LOOT_RULE_KEYS, parseLootRules } from './validate';
 import { FAQ_SEED } from './faqSeed';
 import { deleteNotesFor } from './playerNotes';
+import { assertNamedEffectIds } from './namedEffectsCustom';
 import type { RelationInput, RelationPatch, RelationRef, AugmentInput, NpcInput, FaqInput, FaqPatch, MapPoiInput, MapPoiKind, MapPoiPatch, ChampionAbility, ChampionFieldsPatch, CombatState, HistoryKind, ItemUpdate, LootRules, LootRulesPatch, PartyPatch, PlayerPatch, PlayerReplace, PlayerSheet, RolePatch, RollRecord, ShopOrder, TicketCommentInput, TicketInput, TicketStatus } from './validate';
 
 const PUBLIC = { projection: { _id: 0, order: 0 } };
@@ -108,7 +109,6 @@ export async function updateItem(nombre: string, update: ItemUpdate) {
 
   const set: Document = {
     rareza: update.rareza,
-    efecto: { pasiva: update.efecto.pasiva, activa: update.efecto.activa },
     updatedAt: new Date().toISOString(),
   };
   const hasStats = !!existing.stats && typeof existing.stats === 'object' && !Array.isArray(existing.stats);
@@ -121,6 +121,11 @@ export async function updateItem(nombre: string, update: ItemUpdate) {
   if (typeof update.hasStacks === 'boolean') set.hasStacks = update.hasStacks;
   const unset: Record<string, ''> = {};
   if (update.coste === null) unset.coste = '';
+  if (update.efecto) set.efecto = { pasiva: update.efecto.pasiva, activa: update.efecto.activa };
+  if (update.description === null) unset.description = '';
+  else if (typeof update.description === 'string') set.description = update.description;
+  if (update.lolStats === null) unset.lolStats = '';
+  else if (update.lolStats) set.lolStats = update.lolStats;
   if (update.hasStacks === false) {
     unset.maxStacks = '';
   } else if (update.maxStacks === null) {
@@ -141,7 +146,11 @@ export async function updateItem(nombre: string, update: ItemUpdate) {
   if (update.passiveDamage === null) unset.passiveDamage = '';
   else if (update.passiveDamage) set.passiveDamage = update.passiveDamage;
   if (update.namedEffects === null || (Array.isArray(update.namedEffects) && update.namedEffects.length === 0)) unset.namedEffects = '';
-  else if (Array.isArray(update.namedEffects)) set.namedEffects = update.namedEffects;
+  else if (Array.isArray(update.namedEffects)) {
+    // La lista de efectos validos es la de la BD (namedEffectsCustom).
+    await assertNamedEffectIds(update.namedEffects);
+    set.namedEffects = update.namedEffects;
+  }
 
   const updateDoc: Document = Object.keys(unset).length ? { $set: set, $unset: unset } : { $set: set };
   await col.updateOne({ _id: existing._id }, updateDoc);

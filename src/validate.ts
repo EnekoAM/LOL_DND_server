@@ -2473,7 +2473,8 @@ function itemNamedEffects(value: unknown): string[] {
 
 export type ItemUpdate = {
   rareza: string;
-  efecto: { pasiva: string; activa: string };
+  /** Omitido = no toca los textos de pasiva / activa (el editor ya no los manda). */
+  efecto?: { pasiva: string; activa: string };
   stats: Record<string, number | string>;
   /** undefined deja el coste como está; null lo quita. */
   coste?: number | null;
@@ -2495,6 +2496,10 @@ export type ItemUpdate = {
   passiveDamage?: ItemPassiveDamage | null;
   /** Efectos con nombre (Vigor, Salvavidas…; ids de namedEffects.ts). [] / null los quita. */
   namedEffects?: string[] | null;
+  /** Descripcion libre del item (null / vacio la quita). */
+  description?: string | null;
+  /** AD / AP del LoL con que se rellenaron los dados de stats (solo editor). null lo quita. */
+  lolStats?: { AD?: number; AP?: number } | null;
 };
 
 const ITEM_TEXT_LIMIT = 2000;
@@ -2540,20 +2545,41 @@ export function parseItemUpdate(body: unknown): ItemUpdate {
   const rareza = optionalText(source.rareza, 'rareza');
   if (!rareza) throw new HttpError(400, 'El ítem necesita una rareza');
 
-  if (!source.efecto || typeof source.efecto !== 'object' || Array.isArray(source.efecto)) {
-    throw new HttpError(400, 'efecto tiene que ser un objeto con pasiva y activa');
+  const update: ItemUpdate = { rareza, stats: itemStats(source.stats) };
+  // Sin efecto: los textos de pasiva / activa se quedan como esten.
+  if (source.efecto !== undefined) {
+    if (!source.efecto || typeof source.efecto !== 'object' || Array.isArray(source.efecto)) {
+      throw new HttpError(400, 'efecto tiene que ser un objeto con pasiva y activa');
+    }
+    const efecto = source.efecto as Record<string, unknown>;
+    update.efecto = { pasiva: effectText(efecto.pasiva, 'efecto.pasiva'), activa: effectText(efecto.activa, 'efecto.activa') };
   }
-  const efecto = source.efecto as Record<string, unknown>;
-
-  const update: ItemUpdate = {
-    rareza,
-    efecto: {
-      pasiva: effectText(efecto.pasiva, 'efecto.pasiva'),
-      activa: effectText(efecto.activa, 'efecto.activa'),
-    },
-    stats: itemStats(source.stats),
-  };
-
+  if ('description' in source) {
+    if (source.description === null) update.description = null;
+    else {
+      if (typeof source.description !== 'string') throw new HttpError(400, 'description tiene que ser un texto');
+      const text = source.description.trim();
+      if (text.length > ITEM_TEXT_LIMIT) throw new HttpError(400, 'La descripci\u00f3n es demasiado larga');
+      update.description = text || null;
+    }
+  }
+  if ('lolStats' in source) {
+    if (source.lolStats === null) update.lolStats = null;
+    else {
+      if (!source.lolStats || typeof source.lolStats !== 'object' || Array.isArray(source.lolStats)) {
+        throw new HttpError(400, 'lolStats tiene que ser un objeto con AD / AP');
+      }
+      const lol: { AD?: number; AP?: number } = {};
+      for (const [key, value] of Object.entries(source.lolStats as Record<string, unknown>)) {
+        if (key !== 'AD' && key !== 'AP') throw new HttpError(400, `lolStats.${key} no existe (solo AD y AP)`);
+        if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 100000) {
+          throw new HttpError(400, `lolStats.${key} tiene que ser un n\u00famero entre 0 y 100000`);
+        }
+        lol[key] = value;
+      }
+      update.lolStats = lol.AD !== undefined || lol.AP !== undefined ? lol : null;
+    }
+  }
   if (source.coste === null) {
     update.coste = null;
   } else if (source.coste !== undefined) {

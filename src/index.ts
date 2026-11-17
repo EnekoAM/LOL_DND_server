@@ -156,6 +156,8 @@ app.delete('/api/events', adapt(events));
 // Descripciones de los efectos con nombre: leer cualquiera; editar solo admin.
 app.get('/api/named-effects', adapt(namedEffects));
 app.patch('/api/named-effects', adapt(namedEffects));
+app.post('/api/named-effects', adapt(namedEffects));
+app.delete('/api/named-effects', adapt(namedEffects));
 app.get('/api/loot', adapt(loot));
 app.patch('/api/loot', adapt(loot));
 app.get('/api/party', adapt(party));

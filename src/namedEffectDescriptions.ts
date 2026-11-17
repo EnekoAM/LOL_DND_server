@@ -15,8 +15,8 @@ import { SHEET_STAT_KEYS } from './validate';
 type DescriptionDoc = { _id: string; description?: string; onHit?: boolean; bonus?: EffectBonusConfig; area?: AreaPattern; updatedAt: string };
 
 // ── Configurador de bonus (mismo modelo que web/src/data/effectBonus.ts) ──
-const TRIGGERS = ['always', 'on-hit', 'on-attack', 'after-ability', 'after-use', 'on-ability-hit', 'on-use', 'on-takedown', 'hp-below', 'on-damage-taken', 'on-attacked', 'each-turn', 'energized-max', 'on-ultimate-use', 'on-enemy-ultimate-use', 'combat-start', 'combat-entry', 'on-survived-hit', 'on-death'] as const;
-const KINDS = ['stat', 'damage', 'heal', 'shield', 'mana', 'slow', 'status', 'extra-on-hit', 'attack-speed', 'move-speed', 'vigor', 'damage-reduction', 'execute', 'extra-action'] as const;
+const TRIGGERS = ['always', 'on-hit', 'on-attack', 'after-ability', 'after-use', 'on-ability-hit', 'on-ability-use', 'on-deal-physical', 'on-deal-magic', 'on-deal-true', 'on-use', 'on-takedown', 'hp-below', 'on-damage-taken', 'on-attacked', 'each-turn', 'energized-max', 'on-ultimate-use', 'on-enemy-ultimate-use', 'combat-start', 'combat-entry', 'when-ready', 'on-survived-hit', 'on-death'] as const;
+const KINDS = ['stat', 'damage', 'heal', 'shield', 'temp-hp', 'mana', 'slow', 'status', 'extra-on-hit', 'attack-speed', 'move-speed', 'vigor', 'damage-reduction', 'execute', 'extra-action'] as const;
 const SCALING = ['baseAd', 'ad', 'bonusAd', 'ap', 'hp', 'bonusHp', 'missingHp', 'mana', 'bonusMana', 'armor', 'bonusArmor', 'mr', 'bonusMr', 'critChance', 'manaRegen', 'level', 'spe', 'targetMaxHp', 'targetCurrentHp', 'targetMissingHp', 'targetArmor', 'targetMr', 'targetSpe', 'lethality'] as const;
 const DAMAGE_TYPES = ['physical', 'magic', 'true'] as const;
 const MAX_RULES = 12;
@@ -50,9 +50,16 @@ export type EffectRule = {
   missingHpScalePct?: number;
   triggerAtMax?: boolean;
   requiresMaxStacks?: boolean;
+  /** Fijo / por nivel en n\u00fameros del LoL (en combate / 10). */
+  lolScale?: boolean;
+  /** AD / AP del LoL con el que se rellenaron los dados (solo editor). */
+  lolDice?: number;
   delayTurns?: number;
+  /** Curaci\u00f3n repartida en N tramos (2-20). */
+  healOverTurns?: number;
   halfAfterTurns?: number;
   fromManaSpentPct?: number;
+  rangedPct?: number;
   critPotencyPct?: number;
   pulseEachTurn?: boolean;
   spellShield?: boolean;
@@ -75,7 +82,7 @@ export type EffectBonusConfig = {
   /** CD por tramo de nivel del portador (1–5 / 6–10 / 11–15 / 16–20). */
   cooldownByLevel?: number[];
   duration?: number;
-  cdStart?: 'on-activate' | 'on-end';
+  cdStart?: 'on-activate' | 'on-end' | 'on-break';
   /** Vigor: las habilidades que golpean también descargan el Vigor al máximo (Espada ciclovoltaica). */
   abilityDischarge?: boolean;
   /** Vigor al máximo: encadena a N objetivos (1-10; ausente = 1). */
@@ -121,6 +128,7 @@ const APPLIES_TO_BY_KIND: Record<EffectRule['kind'], AppliesTo[]> = {
   'move-speed': ['self', 'allies', ...DEBUFF_TO],
   heal: ['self', 'allies'],
   shield: ['self', 'allies'],
+  'temp-hp': ['self', 'allies'],
   damage: ['self', ...DEBUFF_TO],
   slow: ['self', ...DEBUFF_TO],
   status: ['self', 'allies', ...DEBUFF_TO],
@@ -206,12 +214,19 @@ export function parseEffectBonusConfig(value: unknown): EffectBonusConfig {
     if (missingHpScalePct !== undefined) rule.missingHpScalePct = missingHpScalePct;
     if (r.triggerAtMax === true) rule.triggerAtMax = true;
     if (r.requiresMaxStacks === true) rule.requiresMaxStacks = true;
+    if (r.lolScale === true) rule.lolScale = true;
+    const lolDice = optNumber(r.lolDice, `${field}.lolDice`, 0, 100000);
+    if (lolDice !== undefined) rule.lolDice = lolDice;
     const delayTurns = optTurns(r.delayTurns, `${field}.delayTurns`);
     if (delayTurns) rule.delayTurns = delayTurns;
+    const healOverTurns = optTurns(r.healOverTurns, `${field}.healOverTurns`);
+    if (healOverTurns && healOverTurns >= 2) rule.healOverTurns = Math.min(20, healOverTurns);
     const halfAfterTurns = optTurns(r.halfAfterTurns, `${field}.halfAfterTurns`);
     if (halfAfterTurns) rule.halfAfterTurns = halfAfterTurns;
     const fromManaSpentPct = optNumber(r.fromManaSpentPct, `${field}.fromManaSpentPct`, 0, 1000);
     if (fromManaSpentPct !== undefined) rule.fromManaSpentPct = fromManaSpentPct;
+    const rangedPct = optNumber(r.rangedPct, `${field}.rangedPct`, 0, 200);
+    if (rangedPct !== undefined) rule.rangedPct = rangedPct;
     const critPotencyPct = optNumber(r.critPotencyPct, `${field}.critPotencyPct`, 0, 100);
     if (critPotencyPct !== undefined) rule.critPotencyPct = critPotencyPct;
     if (r.pulseEachTurn === true) rule.pulseEachTurn = true;
@@ -228,7 +243,8 @@ export function parseEffectBonusConfig(value: unknown): EffectBonusConfig {
     }
     const damageAmpPct = optNumber(r.damageAmpPct, `${field}.damageAmpPct`, 0, 1000);
     if (damageAmpPct !== undefined) rule.damageAmpPct = damageAmpPct;
-    const duration = optTurns(r.duration, `${field}.duration`);
+    // -1 = hasta el final del combate.
+    const duration = r.duration === -1 ? -1 : optTurns(r.duration, `${field}.duration`);
     if (duration) rule.duration = duration;
     // Máx. stacks hasta 999 (cargas permanentes como Flujo de maná: 120).
     const maxStacks = optNumber(r.maxStacks, `${field}.maxStacks`, 1, 999);
@@ -255,9 +271,9 @@ export function parseEffectBonusConfig(value: unknown): EffectBonusConfig {
     const list = source.cooldownByLevel.map((n, i) => optTurns(n, `bonus.cooldownByLevel[${i}]`)).filter((n): n is number => !!n);
     if (list.length) config.cooldownByLevel = list;
   }
-  const duration = optTurns(source.duration, 'bonus.duration');
+  const duration = source.duration === -1 ? -1 : optTurns(source.duration, 'bonus.duration');
   if (duration) config.duration = duration;
-  if (source.cdStart !== undefined && source.cdStart !== null) config.cdStart = oneOf(['on-activate', 'on-end'] as const, source.cdStart, 'bonus.cdStart');
+  if (source.cdStart !== undefined && source.cdStart !== null) config.cdStart = oneOf(['on-activate', 'on-end', 'on-break'] as const, source.cdStart, 'bonus.cdStart');
   if (source.abilityDischarge !== undefined && source.abilityDischarge !== null) {
     if (typeof source.abilityDischarge !== 'boolean') throw new HttpError(400, 'bonus.abilityDischarge tiene que ser true o false');
     if (source.abilityDischarge) config.abilityDischarge = true;
