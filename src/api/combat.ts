@@ -40,7 +40,7 @@ function requesterParticipant(req: ApiRequest, combat: { participants: CombatPar
  * La estructura del combate (quién está, orden, ronda, turno, fichas, iniciativa) sigue siendo solo del admin.
  */
 const PLAYER_WRITABLE_KEYS = [
-  'hp', 'tempHp', 'shield', 'currentResource',
+  'hp', 'tempHp', 'shield', 'physicalShield', 'magicShield', 'currentResource',
   'effects', 'bonuses', 'defeated',
   'cooldowns', 'activeEffects', 'abilityPhases',
   'actionsLeft', 'actionsExtra', 'vigor', 'movementUsed',
@@ -97,6 +97,8 @@ async function patchCombatHp(req: ApiRequest) {
   // Solo vida: vida temporal y escudo (players: vidaTemporal / escudo de su ficha).
   const tempHp = resource || body.tempHp === undefined || body.tempHp === null ? undefined : hpInt(body.tempHp, 'tempHp');
   const shield = resource || body.shield === undefined || body.shield === null ? undefined : hpInt(body.shield, 'shield');
+  const physicalShield = resource || body.physicalShield === undefined || body.physicalShield === null ? undefined : hpInt(body.physicalShield, 'physicalShield');
+  const magicShield = resource || body.magicShield === undefined || body.magicShield === null ? undefined : hpInt(body.magicShield, 'magicShield');
   const combat = await getCombat();
   const participant = combat.participants.find(p => p.id === body.participantId);
   if (!participant) throw new HttpError(404, 'Ese participante ya no está en el combate');
@@ -118,6 +120,8 @@ async function patchCombatHp(req: ApiRequest) {
       ...(max === undefined ? { [currentKey]: current } : { [maxKey]: max, [currentKey]: Math.min(current, max) }),
       ...(tempHp === undefined ? {} : { vidaTemporal: tempHp }),
       ...(shield === undefined ? {} : { escudo: shield }),
+      ...(physicalShield === undefined ? {} : { escudoFisico: physicalShield }),
+      ...(magicShield === undefined ? {} : { escudoMagico: magicShield }),
     });
     const player = await updatePlayer(playerName, patch);
     return { combat, player };
@@ -144,6 +148,8 @@ async function patchCombatHp(req: ApiRequest) {
           ...(nextMax === undefined ? {} : { maxHp: nextMax }),
           ...(tempHp === undefined ? {} : { tempHp }),
           ...(shield === undefined ? {} : { shield }),
+          ...(physicalShield === undefined ? {} : { physicalShield }),
+          ...(magicShield === undefined ? {} : { magicShield }),
         }
       : p)),
   };
@@ -266,7 +272,7 @@ const fullView = (req: ApiRequest, combat: { participants: CombatParticipant[] }
  * El aviso en vivo no manda el documento: cada pestaña lo vuelve a pedir por GET, que ya va redactado.
  */
 const ENEMY_REDACT_KEYS = [
-  'hp', 'maxHp', 'tempHp', 'shield',
+  'hp', 'maxHp', 'tempHp', 'shield', 'physicalShield', 'magicShield',
   'currentResource', 'resourceMax',
   'sheet',
   'actionsLeft', 'actionsExtra',

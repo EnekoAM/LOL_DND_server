@@ -87,6 +87,9 @@ export type PlayerPatch = {
   actualHp?: number;
   /** Escudo (no se muestra en la vista compacta). */
   escudo?: number;
+  /** Escudos por tipo de daño: el físico solo bloquea daño físico, el mágico solo mágico. */
+  escudoFisico?: number;
+  escudoMagico?: number;
   /** Vida temporal (solo en el editor). */
   vidaTemporal?: number;
   /** Máximo de maná (editable en la ficha). */
@@ -534,7 +537,23 @@ export type PlayerSheet = {
 const ROLE_ID = /^[a-z0-9][a-z0-9-]{0,39}$/;
 const SCORE_MIN = 1;
 const SCORE_MAX = 30;
-const SHEET_TEXT_LIMIT = 20;
+const SHEET_TEXT_LIMIT = 80;
+
+/** "5d6+1d2", "4d6+1d4+3", "12". */
+const STAT_AMOUNT_RE = /^(?:[+-]?(?:\d+d\d+|\d+(?:\.\d+)?))(?:[+-](?:\d+d\d+|\d+(?:\.\d+)?))*$/i;
+
+function compactStatText(text: string): string {
+  return text
+    .trim()
+    .replace(/\s+/g, '')
+    .replace(/,/g, '.')
+    .replace(/(^|[+-])d(\d+)/gi, '$11d$2');
+}
+
+function isStatAmountText(text: string): boolean {
+  const compact = compactStatText(text);
+  return compact.length > 0 && STAT_AMOUNT_RE.test(compact);
+}
 
 function sheetScores(value: unknown): Record<AbilityScoreKey, number> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -572,11 +591,14 @@ function sheetExtra(value: unknown): Partial<Record<SheetStatKey, number | strin
     }
     if (typeof raw === 'string') {
       const text = raw.trim();
-      if (text.length > SHEET_TEXT_LIMIT) throw new HttpError(400, `sheet.extra.${key} es demasiado largo`);
-      if (text && text !== '0' && text !== '-') extra[stat] = text;
+      if (!text || text === '0' || text === '-') continue;
+      if (text.length > SHEET_TEXT_LIMIT || !isStatAmountText(text)) {
+        throw new HttpError(400, `sheet.extra.${key} tiene que ser un n\u00famero o dados (por ejemplo 1d6+1d4)`);
+      }
+      extra[stat] = compactStatText(text).toLowerCase();
       continue;
     }
-    throw new HttpError(400, `sheet.extra.${key} tiene que ser un número o un dado (por ejemplo 1d4)`);
+    throw new HttpError(400, `sheet.extra.${key} tiene que ser un número o dados (por ejemplo 1d6+1d4)`);
   }
   return extra;
 }
@@ -727,6 +749,8 @@ export function parsePlayerPatch(body: unknown): PlayerPatch {
   if ('hp' in source) patch.hp = nonNegInt(source.hp, 'hp');
   if ('actualHp' in source) patch.actualHp = nonNegInt(source.actualHp, 'actualHp');
   if ('escudo' in source) patch.escudo = nonNegInt(source.escudo, 'escudo');
+  if ('escudoFisico' in source) patch.escudoFisico = nonNegInt(source.escudoFisico, 'escudoFisico');
+  if ('escudoMagico' in source) patch.escudoMagico = nonNegInt(source.escudoMagico, 'escudoMagico');
   if ('vidaTemporal' in source) patch.vidaTemporal = nonNegInt(source.vidaTemporal, 'vidaTemporal');
   if ('mana' in source) patch.mana = nonNegInt(source.mana, 'mana');
   if ('actualMana' in source) patch.actualMana = nonNegInt(source.actualMana, 'actualMana');
@@ -2503,7 +2527,7 @@ export type ItemUpdate = {
 };
 
 const ITEM_TEXT_LIMIT = 2000;
-const STAT_TEXT_LIMIT = 20;
+const STAT_TEXT_LIMIT = 80;
 
 function effectText(value: unknown, field: string): string {
   if (value === undefined || value === null) return '-';
@@ -2527,11 +2551,14 @@ function itemStats(value: unknown): Record<string, number | string> {
       stats[key] = stat;
       continue;
     }
-    if (typeof stat === 'string' && stat.trim() && stat.trim().length <= STAT_TEXT_LIMIT) {
-      stats[key] = stat.trim();
-      continue;
+    if (typeof stat === 'string') {
+      const text = stat.trim();
+      if (text && text.length <= STAT_TEXT_LIMIT && isStatAmountText(text)) {
+        stats[key] = compactStatText(text).toLowerCase();
+        continue;
+      }
     }
-    throw new HttpError(400, `${key} tiene que ser un número o un dado (por ejemplo 1d4)`);
+    throw new HttpError(400, `${key} tiene que ser un número o dados (por ejemplo 1d6+1d4)`);
   }
   return stats;
 }
@@ -2811,7 +2838,7 @@ export type RolePatch = {
 
 const ROLE_NAME_LIMIT = 40;
 const ROLE_LEVEL_LIMIT = 30;
-const ROLE_TEXT_LIMIT = 40;
+const ROLE_TEXT_LIMIT = 80;
 
 export function isRoleId(value: string): boolean {
   return ROLE_ID.test(value);
@@ -2837,11 +2864,14 @@ function roleStatLine(value: unknown, index: number): RoleStatLine {
       line[key] = raw;
       continue;
     }
-    if (typeof raw === 'string' && raw.trim() && raw.trim().length <= ROLE_TEXT_LIMIT) {
-      line[key] = raw.trim();
-      continue;
+    if (typeof raw === 'string') {
+      const text = raw.trim();
+      if (text && text.length <= ROLE_TEXT_LIMIT && isStatAmountText(text)) {
+        line[key] = compactStatText(text).toLowerCase();
+        continue;
+      }
     }
-    throw new HttpError(400, `${field}.${key} tiene que ser un número o un dado (por ejemplo 2d4)`);
+    throw new HttpError(400, `${field}.${key} tiene que ser un número o dados (por ejemplo 1d6+1d4)`);
   }
   return line;
 }
@@ -3528,6 +3558,8 @@ export type CombatParticipant = {
   /** Vida temporal y escudo (campeones / NPCs; los players los llevan en su ficha). */
   tempHp?: number;
   shield?: number;
+  physicalShield?: number;
+  magicShield?: number;
   /** Máximo del recurso fijado a mano (si no, el de sus stats / Recurso). */
   resourceMax?: number;
   /** Ataques / habilidades que le quedan este turno (ausente = todos). */
@@ -3740,6 +3772,8 @@ function combatParticipant(value: unknown): CombatParticipant {
   }
   if (source.tempHp !== undefined && source.tempHp !== null) participant.tempHp = nonNegInt(source.tempHp, 'tempHp');
   if (source.shield !== undefined && source.shield !== null) participant.shield = nonNegInt(source.shield, 'shield');
+  if (source.physicalShield !== undefined && source.physicalShield !== null) participant.physicalShield = nonNegInt(source.physicalShield, 'physicalShield');
+  if (source.magicShield !== undefined && source.magicShield !== null) participant.magicShield = nonNegInt(source.magicShield, 'magicShield');
   if (source.resourceMax !== undefined && source.resourceMax !== null) {
     participant.resourceMax = nonNegInt(source.resourceMax, 'resourceMax');
   }

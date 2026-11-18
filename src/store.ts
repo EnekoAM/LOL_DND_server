@@ -1236,6 +1236,8 @@ export async function updatePlayer(name: string, patch: PlayerPatch) {
   if (patch.hp !== undefined) $set.hp = patch.hp;
   if (patch.actualHp !== undefined) $set.actualHp = patch.actualHp;
   if (patch.escudo !== undefined) $set.escudo = patch.escudo;
+  if (patch.escudoFisico !== undefined) $set.escudoFisico = patch.escudoFisico;
+  if (patch.escudoMagico !== undefined) $set.escudoMagico = patch.escudoMagico;
   if (patch.vidaTemporal !== undefined) $set.vidaTemporal = patch.vidaTemporal;
   if (patch.mana !== undefined) $set.mana = patch.mana;
   if (patch.actualMana !== undefined) $set.actualMana = patch.actualMana;

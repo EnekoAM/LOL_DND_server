@@ -16,8 +16,8 @@ type DescriptionDoc = { _id: string; description?: string; onHit?: boolean; bonu
 
 // ── Configurador de bonus (mismo modelo que web/src/data/effectBonus.ts) ──
 const TRIGGERS = ['always', 'on-hit', 'on-attack', 'after-ability', 'after-use', 'on-ability-hit', 'on-ability-use', 'on-deal-physical', 'on-deal-magic', 'on-deal-true', 'on-use', 'on-takedown', 'hp-below', 'on-damage-taken', 'on-attacked', 'each-turn', 'energized-max', 'on-ultimate-use', 'on-enemy-ultimate-use', 'combat-start', 'combat-entry', 'when-ready', 'on-survived-hit', 'on-death'] as const;
-const KINDS = ['stat', 'damage', 'heal', 'shield', 'temp-hp', 'mana', 'slow', 'status', 'extra-on-hit', 'attack-speed', 'move-speed', 'vigor', 'damage-reduction', 'execute', 'extra-action'] as const;
-const SCALING = ['baseAd', 'ad', 'bonusAd', 'ap', 'hp', 'bonusHp', 'missingHp', 'mana', 'bonusMana', 'armor', 'bonusArmor', 'mr', 'bonusMr', 'critChance', 'manaRegen', 'level', 'spe', 'targetMaxHp', 'targetCurrentHp', 'targetMissingHp', 'targetArmor', 'targetMr', 'targetSpe', 'lethality'] as const;
+const KINDS = ['stat', 'damage', 'heal', 'shield', 'shield-magic', 'shield-physical', 'temp-hp', 'mana', 'slow', 'status', 'extra-on-hit', 'attack-speed', 'move-speed', 'vigor', 'damage-reduction', 'execute', 'extra-action'] as const;
+const SCALING = ['baseAd', 'ad', 'bonusAd', 'ap', 'hp', 'bonusHp', 'missingHp', 'mana', 'bonusMana', 'armor', 'bonusArmor', 'mr', 'bonusMr', 'critChance', 'manaRegen', 'level', 'spe', 'targetMaxHp', 'targetCurrentHp', 'targetMissingHp', 'targetArmor', 'targetMr', 'targetSpe', 'lethality', 'dealtDamage'] as const;
 const DAMAGE_TYPES = ['physical', 'magic', 'true'] as const;
 const MAX_RULES = 12;
 
@@ -52,7 +52,7 @@ export type EffectRule = {
   requiresMaxStacks?: boolean;
   /** Fijo / por nivel en n\u00fameros del LoL (en combate / 10). */
   lolScale?: boolean;
-  /** AD / AP del LoL con el que se rellenaron los dados (solo editor). */
+  /** AD / AP del LoL de la regla. En un bonus de stat AD/AP se guarda y se acepta aunque no convierta a dados. */
   lolDice?: number;
   delayTurns?: number;
   /** Curaci\u00f3n repartida en N tramos (2-20). */
@@ -72,6 +72,8 @@ export type EffectRule = {
   maxStacks?: number;
   /** Bonus de stat permanente (sin turnos en combate). */
   permanent?: boolean;
+  /** Cargas permanentes por disparo (por defecto 1; no se guarda si es 1). */
+  stacksPerTrigger?: number;
   /** Solo si el portador es cuerpo a cuerpo (rango total ≤ 1, el 0 cuenta) o a distancia (rango > 1); ausente = siempre. */
   onlyIf?: 'melee' | 'ranged';
   note?: string;
@@ -128,6 +130,8 @@ const APPLIES_TO_BY_KIND: Record<EffectRule['kind'], AppliesTo[]> = {
   'move-speed': ['self', 'allies', ...DEBUFF_TO],
   heal: ['self', 'allies'],
   shield: ['self', 'allies'],
+  'shield-magic': ['self', 'allies'],
+  'shield-physical': ['self', 'allies'],
   'temp-hp': ['self', 'allies'],
   damage: ['self', ...DEBUFF_TO],
   slow: ['self', ...DEBUFF_TO],
@@ -254,6 +258,12 @@ export function parseEffectBonusConfig(value: unknown): EffectBonusConfig {
       if (r.permanent !== true) throw new HttpError(400, `${field}.permanent tiene que ser true o false`);
       if (!['stat', 'attack-speed', 'move-speed'].includes(rule.kind)) throw new HttpError(400, `${field}.permanent solo vale para bonus de stat / velocidad`);
       rule.permanent = true;
+    }
+    const stacksPerTrigger = optNumber(r.stacksPerTrigger, `${field}.stacksPerTrigger`, 1, 999);
+    if (stacksPerTrigger !== undefined) {
+      if (!Number.isInteger(stacksPerTrigger)) throw new HttpError(400, `${field}.stacksPerTrigger tiene que ser un entero`);
+      if (!['stat', 'attack-speed', 'move-speed'].includes(rule.kind)) throw new HttpError(400, `${field}.stacksPerTrigger solo vale para bonus de stat / velocidad`);
+      if (stacksPerTrigger >= 2) rule.stacksPerTrigger = stacksPerTrigger;
     }
     if (r.onlyIf !== undefined && r.onlyIf !== null && r.onlyIf !== '') {
       const onlyIf = oneOf(['always', 'melee', 'ranged'] as const, r.onlyIf, `${field}.onlyIf`);
