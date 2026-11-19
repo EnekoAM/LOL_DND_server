@@ -43,6 +43,7 @@ function row(
     magicPenPct: 0,
     // Solo las dan los ítems: 0 en todos los roles y niveles.
     healShieldPct: 0,
+    healShieldReceivedPct: 0,
     tenacityPct: 0,
     slowResistPct: 0,
     lifeStealPct: 0,

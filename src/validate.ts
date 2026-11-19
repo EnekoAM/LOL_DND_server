@@ -500,6 +500,7 @@ export const SHEET_STAT_KEYS = [
   'armorPenPct',
   'magicPenPct',
   'healShieldPct',
+  'healShieldReceivedPct',
   'tenacityPct',
   'slowResistPct',
   'lifeStealPct',
@@ -510,7 +511,7 @@ export const SHEET_STAT_KEYS = [
 ] as const;
 
 /** Stats añadidas después: las tablas de rol antiguas no las traen y valen 0. */
-const OPTIONAL_ROLE_STAT_KEYS: readonly SheetStatKey[] = ['armorPenPct', 'magicPenPct', 'healShieldPct', 'tenacityPct', 'slowResistPct', 'lifeStealPct', 'omnivampPct', 'range', 'healthRegen', 'manaRegen'];
+const OPTIONAL_ROLE_STAT_KEYS: readonly SheetStatKey[] = ['armorPenPct', 'magicPenPct', 'healShieldPct', 'healShieldReceivedPct', 'tenacityPct', 'slowResistPct', 'lifeStealPct', 'omnivampPct', 'range', 'healthRegen', 'manaRegen'];
 
 export type SheetStatKey = (typeof SHEET_STAT_KEYS)[number];
 
@@ -3673,6 +3674,11 @@ export type CombatBonus = {
   /** Marcador 'charges' (cargas de combate): turnos para la siguiente recarga y cada cuántos recarga. */
   recharge?: number;
   rechargeEvery?: number;
+  /** CD con decimales: parte del turno ya descontada (0-1). */
+  cdCut?: number;
+  /** Decae durante la duración: valor entero al aplicarse y turnos totales. */
+  decayFrom?: number;
+  decayTurns?: number;
   /** "manual" o "item:<nombre>". */
   source?: string;
   label?: string;
@@ -3705,6 +3711,12 @@ export function combatBonuses(value: unknown): CombatBonus[] {
     if (maxStacks !== undefined) bonus.maxStacks = maxStacks;
     const turns = optionalCount(source.turns, `bonuses[${index}].turns`, 1, 99);
     if (turns !== undefined) bonus.turns = turns;
+    if (typeof source.cdCut === 'number' && Number.isFinite(source.cdCut) && source.cdCut > 0 && source.cdCut < 1) bonus.cdCut = Math.round(source.cdCut * 1000) / 1000;
+    const decayTurns = optionalCount(source.decayTurns, `bonuses[${index}].decayTurns`, 1, 99);
+    if (decayTurns !== undefined && typeof source.decayFrom === 'number') {
+      bonus.decayTurns = decayTurns;
+      bonus.decayFrom = bonusAmount(source.decayFrom, `bonuses[${index}].decayFrom`);
+    }
     const origin = boundedText(source.source, `bonuses[${index}].source`, 80);
     if (origin) bonus.source = origin;
     // CD por objetivo (marca de un portador): cd:<efecto>@<id del portador>, solo como marcador 'cooldown' con turnos.
@@ -3966,13 +3978,14 @@ export function parsePlayerStacks(value: unknown): Record<string, number> {
     if (!key.startsWith('item:') && !key.startsWith('ability:') && !key.startsWith('effect:')) {
       throw new HttpError(400, `Clave de stack debe empezar por item:, ability: o effect: (${key})`);
     }
-    if (typeof rawVal !== 'number' || !Number.isFinite(rawVal) || !Number.isInteger(rawVal) || rawVal < 0) {
+    if (typeof rawVal !== 'number' || !Number.isFinite(rawVal) || (!Number.isInteger(rawVal) && !key.startsWith('effect:')) || rawVal < 0) {
       throw new HttpError(400, `stacks[${key}] tiene que ser un entero ≥ 0`);
     }
     if (rawVal > STACKS_VALUE_MAX) {
       throw new HttpError(400, `stacks[${key}] no puede superar ${STACKS_VALUE_MAX}`);
     }
-    out[key] = rawVal;
+    // effect:<id>: puede ser un valor acumulado con decimales («La carga guarda el valor calculado»).
+    out[key] = Math.round(rawVal * 1000) / 1000;
   }
   return out;
 }

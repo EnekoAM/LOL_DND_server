@@ -15,9 +15,9 @@ import { SHEET_STAT_KEYS } from './validate';
 type DescriptionDoc = { _id: string; description?: string; onHit?: boolean; bonus?: EffectBonusConfig; area?: AreaPattern; updatedAt: string };
 
 // ── Configurador de bonus (mismo modelo que web/src/data/effectBonus.ts) ──
-const TRIGGERS = ['always', 'on-hit', 'on-attack', 'after-ability', 'after-use', 'on-ability-hit', 'on-ability-use', 'on-deal-physical', 'on-deal-magic', 'on-deal-true', 'on-use', 'on-takedown', 'hp-below', 'on-damage-taken', 'on-attacked', 'each-turn', 'energized-max', 'on-ultimate-use', 'on-enemy-ultimate-use', 'combat-start', 'combat-entry', 'when-ready', 'on-survived-hit', 'on-death'] as const;
-const KINDS = ['stat', 'damage', 'heal', 'shield', 'shield-magic', 'shield-physical', 'temp-hp', 'mana', 'slow', 'status', 'extra-on-hit', 'attack-speed', 'move-speed', 'vigor', 'damage-reduction', 'execute', 'extra-action'] as const;
-const SCALING = ['baseAd', 'ad', 'bonusAd', 'ap', 'hp', 'bonusHp', 'missingHp', 'mana', 'bonusMana', 'armor', 'bonusArmor', 'mr', 'bonusMr', 'critChance', 'manaRegen', 'level', 'spe', 'targetMaxHp', 'targetCurrentHp', 'targetMissingHp', 'targetArmor', 'targetMr', 'targetSpe', 'lethality', 'dealtDamage'] as const;
+const TRIGGERS = ['always', 'on-hit', 'on-attack', 'after-ability', 'after-use', 'on-ability-hit', 'on-ability-use', 'on-cc', 'on-deal-any', 'on-deal-physical', 'on-deal-magic', 'on-deal-true', 'on-use', 'on-takedown', 'hp-below', 'on-damage-taken', 'on-attacked', 'each-turn', 'energized-max', 'on-ultimate-use', 'on-enemy-ultimate-use', 'combat-start', 'combat-entry', 'when-ready', 'on-survived-hit', 'on-death'] as const;
+const KINDS = ['stat', 'damage', 'heal', 'shield', 'shield-magic', 'shield-physical', 'temp-hp', 'mana', 'slow', 'status', 'extra-on-hit', 'attack-speed', 'move-speed', 'vigor', 'damage-reduction', 'damage-amp', 'vulnerable', 'execute', 'extra-action'] as const;
+const SCALING = ['baseAd', 'ad', 'bonusAd', 'ap', 'hp', 'bonusHp', 'missingHp', 'mana', 'bonusMana', 'armor', 'bonusArmor', 'mr', 'bonusMr', 'critChance', 'manaRegen', 'level', 'spe', 'targetMaxHp', 'targetCurrentHp', 'targetMissingHp', 'targetArmor', 'targetMr', 'targetSpe', 'lethality', 'dealtDamage', 'enemiesHit'] as const;
 const DAMAGE_TYPES = ['physical', 'magic', 'true'] as const;
 const MAX_RULES = 12;
 
@@ -68,10 +68,20 @@ export type EffectRule = {
   armedTurnsAfterSeen?: number;
   auraRange?: number;
   damageAmpPct?: number;
+  /** Amplifica el daño: tipos de daño del portador a los que se aplica (ausente = todos). */
+  damageTypes?: ('physical' | 'magic' | 'true')[];
   duration?: number;
   maxStacks?: number;
   /** Bonus de stat permanente (sin turnos en combate). */
   permanent?: boolean;
+  /** Cargas permanentes que guardan el valor calculado de cada activación (se suma). */
+  stackValue?: boolean;
+  /** on-cc: solo con controles que inmovilizan. */
+  ccImmobilizeOnly?: boolean;
+  /** Estado / ralentizaci\u00f3n / Vulnerable: reaplicar suma la duraci\u00f3n (si no, la renueva). */
+  extendDuration?: boolean;
+  /** Decae durante la duración (stat / velocidades con turnos; no con permanent). */
+  decays?: boolean;
   /** Cargas permanentes por disparo (por defecto 1; no se guarda si es 1). */
   stacksPerTrigger?: number;
   /** Solo si el portador es cuerpo a cuerpo (rango total ≤ 1, el 0 cuenta) o a distancia (rango > 1); ausente = siempre. */
@@ -91,6 +101,8 @@ export type EffectBonusConfig = {
   chainTargets?: number;
   /** Enfriamiento por objetivo: el CD va en cada objetivo (marca por portador), no en el portador (Firmamento desgarrado). */
   perTargetCooldown?: boolean;
+  /** Cada AA del portador reduce el CD restante en estos turnos (0.1-99, decimales). */
+  cooldownReducedOnAttack?: number;
   /** Al usar: máximo de objetivos enemigos (1-20). */
   maxTargets?: number;
   /** Cargas de combate: empieza con start (0-max), máx. max (1-99), recarga 1 cada every turnos (1-99). */
@@ -140,6 +152,8 @@ const APPLIES_TO_BY_KIND: Record<EffectRule['kind'], AppliesTo[]> = {
   vigor: ['self'],
   'extra-on-hit': ['self'],
   'damage-reduction': ['self'],
+  'damage-amp': ['self'],
+  vulnerable: [...DEBUFF_TO],
   execute: ['target', 'area', 'nearby'],
   'extra-action': ['self'],
 };
@@ -247,6 +261,11 @@ export function parseEffectBonusConfig(value: unknown): EffectBonusConfig {
     }
     const damageAmpPct = optNumber(r.damageAmpPct, `${field}.damageAmpPct`, 0, 1000);
     if (damageAmpPct !== undefined) rule.damageAmpPct = damageAmpPct;
+    if (r.damageTypes !== undefined && r.damageTypes !== null) {
+      if (!Array.isArray(r.damageTypes)) throw new HttpError(400, `${field}.damageTypes tiene que ser una lista`);
+      const list = [...new Set(r.damageTypes.map((type, i) => oneOf(['physical', 'magic', 'true'] as const, type, `${field}.damageTypes[${i}]`)))];
+      if (list.length && list.length < 3) rule.damageTypes = list;
+    }
     // -1 = hasta el final del combate.
     const duration = r.duration === -1 ? -1 : optTurns(r.duration, `${field}.duration`);
     if (duration) rule.duration = duration;
@@ -258,6 +277,26 @@ export function parseEffectBonusConfig(value: unknown): EffectBonusConfig {
       if (r.permanent !== true) throw new HttpError(400, `${field}.permanent tiene que ser true o false`);
       if (!['stat', 'attack-speed', 'move-speed'].includes(rule.kind)) throw new HttpError(400, `${field}.permanent solo vale para bonus de stat / velocidad`);
       rule.permanent = true;
+    }
+    if (r.decays !== undefined && r.decays !== null && r.decays !== false) {
+      if (r.decays !== true) throw new HttpError(400, `${field}.decays tiene que ser true o false`);
+      if (!['stat', 'attack-speed', 'move-speed'].includes(rule.kind)) throw new HttpError(400, `${field}.decays solo vale para bonus de stat / velocidad`);
+      if (!rule.permanent) rule.decays = true;
+    }
+    if (r.ccImmobilizeOnly !== undefined && r.ccImmobilizeOnly !== null && r.ccImmobilizeOnly !== false) {
+      if (r.ccImmobilizeOnly !== true) throw new HttpError(400, `${field}.ccImmobilizeOnly tiene que ser true o false`);
+      if (rule.trigger !== 'on-cc') throw new HttpError(400, `${field}.ccImmobilizeOnly solo vale con \u00abAl aplicar control\u00bb`);
+      rule.ccImmobilizeOnly = true;
+    }
+    if (r.extendDuration !== undefined && r.extendDuration !== null && r.extendDuration !== false) {
+      if (r.extendDuration !== true) throw new HttpError(400, `${field}.extendDuration tiene que ser true o false`);
+      if (!['status', 'slow', 'vulnerable'].includes(rule.kind)) throw new HttpError(400, `${field}.extendDuration solo vale para estado / ralentizaci\u00f3n / Vulnerable`);
+      rule.extendDuration = true;
+    }
+    if (r.stackValue !== undefined && r.stackValue !== null && r.stackValue !== false) {
+      if (r.stackValue !== true) throw new HttpError(400, `${field}.stackValue tiene que ser true o false`);
+      if (!rule.permanent) throw new HttpError(400, `${field}.stackValue solo vale con cargas permanentes`);
+      rule.stackValue = true;
     }
     const stacksPerTrigger = optNumber(r.stacksPerTrigger, `${field}.stacksPerTrigger`, 1, 999);
     if (stacksPerTrigger !== undefined) {
@@ -301,6 +340,10 @@ export function parseEffectBonusConfig(value: unknown): EffectBonusConfig {
   if (source.perTargetCooldown !== undefined && source.perTargetCooldown !== null) {
     if (typeof source.perTargetCooldown !== 'boolean') throw new HttpError(400, 'bonus.perTargetCooldown tiene que ser true o false');
     if (source.perTargetCooldown) config.perTargetCooldown = true;
+  }
+  if (source.cooldownReducedOnAttack !== undefined && source.cooldownReducedOnAttack !== null) {
+    const by = optNumber(source.cooldownReducedOnAttack, 'bonus.cooldownReducedOnAttack', 0.01, 99);
+    if (by) config.cooldownReducedOnAttack = Math.round(by * 100) / 100;
   }
   if (source.oncePerCombat !== undefined && source.oncePerCombat !== null) {
     if (typeof source.oncePerCombat !== 'boolean') throw new HttpError(400, 'bonus.oncePerCombat tiene que ser true o false');
