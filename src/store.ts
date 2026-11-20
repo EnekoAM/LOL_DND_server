@@ -120,6 +120,16 @@ export async function updateItem(nombre: string, update: ItemUpdate) {
   if (typeof update.coste === 'number') set.coste = update.coste;
   if (typeof update.hasStacks === 'boolean') set.hasStacks = update.hasStacks;
   const unset: Record<string, ''> = {};
+  // Velocidad de habilidades solo b\u00e1sicas / solo R: vac\u00edo (0) = se quita la clave.
+  for (const key of ['Ab haste basic', 'Ab haste ult']) {
+    if (update.stats[key] !== 0) continue;
+    if (hasStats) {
+      delete set[`stats.${key}`];
+      if (key in (existing.stats as Record<string, unknown>)) unset[`stats.${key}`] = '';
+    } else if (set.stats && typeof set.stats === 'object') {
+      delete (set.stats as Record<string, unknown>)[key];
+    }
+  }
   if (update.coste === null) unset.coste = '';
   if (update.efecto) set.efecto = { pasiva: update.efecto.pasiva, activa: update.efecto.activa };
   if (update.description === null) unset.description = '';

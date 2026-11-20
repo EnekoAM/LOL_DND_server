@@ -15,9 +15,9 @@ import { SHEET_STAT_KEYS } from './validate';
 type DescriptionDoc = { _id: string; description?: string; onHit?: boolean; bonus?: EffectBonusConfig; area?: AreaPattern; updatedAt: string };
 
 // ── Configurador de bonus (mismo modelo que web/src/data/effectBonus.ts) ──
-const TRIGGERS = ['always', 'on-hit', 'on-attack', 'after-ability', 'after-use', 'on-ability-hit', 'on-ability-use', 'on-cc', 'on-deal-any', 'on-deal-physical', 'on-deal-magic', 'on-deal-true', 'on-use', 'on-takedown', 'hp-below', 'on-damage-taken', 'on-attacked', 'each-turn', 'energized-max', 'on-ultimate-use', 'on-enemy-ultimate-use', 'combat-start', 'combat-entry', 'when-ready', 'on-survived-hit', 'on-death'] as const;
+const TRIGGERS = ['always', 'on-hit', 'on-attack', 'after-ability', 'after-use', 'on-ability-hit', 'on-ability-damage', 'on-ability-use', 'on-cc', 'on-deal-any', 'on-deal-physical', 'on-deal-magic', 'on-deal-true', 'on-deal-or-cc', 'on-use', 'on-takedown', 'hp-below', 'on-damage-taken', 'on-attacked', 'each-turn', 'energized-max', 'on-ultimate-use', 'on-enemy-ultimate-use', 'combat-start', 'combat-entry', 'when-ready', 'on-survived-hit', 'on-death'] as const;
 const KINDS = ['stat', 'damage', 'heal', 'shield', 'shield-magic', 'shield-physical', 'temp-hp', 'mana', 'slow', 'status', 'extra-on-hit', 'attack-speed', 'move-speed', 'vigor', 'damage-reduction', 'damage-amp', 'vulnerable', 'execute', 'extra-action'] as const;
-const SCALING = ['baseAd', 'ad', 'bonusAd', 'ap', 'hp', 'bonusHp', 'missingHp', 'mana', 'bonusMana', 'armor', 'bonusArmor', 'mr', 'bonusMr', 'critChance', 'manaRegen', 'level', 'spe', 'targetMaxHp', 'targetCurrentHp', 'targetMissingHp', 'targetArmor', 'targetMr', 'targetSpe', 'lethality', 'dealtDamage', 'enemiesHit'] as const;
+const SCALING = ['baseAd', 'ad', 'bonusAd', 'ap', 'hp', 'bonusHp', 'missingHp', 'mana', 'bonusMana', 'armor', 'bonusArmor', 'mr', 'bonusMr', 'critChance', 'manaRegen', 'level', 'spe', 'targetMaxHp', 'targetCurrentHp', 'targetMissingHp', 'targetArmor', 'targetMr', 'targetSpe', 'lethality', 'dealtDamage', 'enemiesHit', 'effectStacks', 'currentMana'] as const;
 const DAMAGE_TYPES = ['physical', 'magic', 'true'] as const;
 const MAX_RULES = 12;
 
@@ -76,10 +76,26 @@ export type EffectRule = {
   permanent?: boolean;
   /** Cargas permanentes que guardan el valor calculado de cada activación (se suma). */
   stackValue?: boolean;
+  /** Cargas permanentes solo contador (no suma stats). */
+  counterOnly?: boolean;
+  /** \u00abAl matar / asistir\u00bb solo con campeones. */
+  championTakedownOnly?: boolean;
   /** on-cc: solo con controles que inmovilizan. */
   ccImmobilizeOnly?: boolean;
+  /** on-cc + ccImmobilizeOnly: ralentizar cuenta si el portador es cuerpo a cuerpo. */
+  ccSlowIfMelee?: boolean;
+  /** Solo si el objetivo es un campe\u00f3n. */
+  championTargetsOnly?: boolean;
+  /** +% si hay m\u00e1s de un campe\u00f3n enemigo vivo en combate. */
+  multiEnemyChampionPct?: number;
   /** Estado / ralentizaci\u00f3n / Vulnerable: reaplicar suma la duraci\u00f3n (si no, la renueva). */
   extendDuration?: boolean;
+  /** Da\u00f1o con cargas que rebotan (principal + hasta N-1 adicionales). */
+  bounceStacks?: number;
+  /** % extra al principal por carga sobrante (por defecto 20). */
+  bounceLeftoverPct?: number;
+  /** Da\u00f1o: fijo contra no campeones (sustituye al fijo). */
+  nonChampionFlat?: number;
   /** Decae durante la duración (stat / velocidades con turnos; no con permanent). */
   decays?: boolean;
   /** Cargas permanentes por disparo (por defecto 1; no se guarda si es 1). */
@@ -99,6 +115,16 @@ export type EffectBonusConfig = {
   abilityDischarge?: boolean;
   /** Vigor al máximo: encadena a N objetivos (1-10; ausente = 1). */
   chainTargets?: number;
+  /** Vigor al m\u00e1ximo: objetivos por nivel (hasta 20 enteros 1-10). */
+  chainTargetsByLevel?: number[];
+  /** Vigor encadenado: los secundarios reciben los efectos de impacto. */
+  chainOnHit?: boolean;
+  /** Requiere N aplicaciones al mismo objetivo (2-10). */
+  hitsRequired?: number;
+  /** Ventana del contador en turnos (1-20). */
+  hitsWindow?: number;
+  /** Solo campeones. */
+  hitsChampionsOnly?: boolean;
   /** Enfriamiento por objetivo: el CD va en cada objetivo (marca por portador), no en el portador (Firmamento desgarrado). */
   perTargetCooldown?: boolean;
   /** Cada AA del portador reduce el CD restante en estos turnos (0.1-99, decimales). */
@@ -283,11 +309,37 @@ export function parseEffectBonusConfig(value: unknown): EffectBonusConfig {
       if (!['stat', 'attack-speed', 'move-speed'].includes(rule.kind)) throw new HttpError(400, `${field}.decays solo vale para bonus de stat / velocidad`);
       if (!rule.permanent) rule.decays = true;
     }
+    const bounceStacks = optNumber(r.bounceStacks, `${field}.bounceStacks`, 2, 20);
+    if (bounceStacks !== undefined) {
+      if (rule.kind !== 'damage') throw new HttpError(400, `${field}.bounceStacks solo vale en reglas de da\u00f1o`);
+      rule.bounceStacks = Math.floor(bounceStacks);
+    }
+    const bounceLeftoverPct = optNumber(r.bounceLeftoverPct, `${field}.bounceLeftoverPct`, 0, 500);
+    if (bounceLeftoverPct !== undefined) {
+      if (!rule.bounceStacks) throw new HttpError(400, `${field}.bounceLeftoverPct necesita bounceStacks`);
+      rule.bounceLeftoverPct = bounceLeftoverPct;
+    }
+    const nonChampionFlat = optNumber(r.nonChampionFlat, `${field}.nonChampionFlat`, -100000, 100000);
+    if (nonChampionFlat !== undefined) {
+      if (rule.kind !== 'damage') throw new HttpError(400, `${field}.nonChampionFlat solo vale en reglas de da\u00f1o`);
+      rule.nonChampionFlat = nonChampionFlat;
+    }
     if (r.ccImmobilizeOnly !== undefined && r.ccImmobilizeOnly !== null && r.ccImmobilizeOnly !== false) {
       if (r.ccImmobilizeOnly !== true) throw new HttpError(400, `${field}.ccImmobilizeOnly tiene que ser true o false`);
       if (rule.trigger !== 'on-cc') throw new HttpError(400, `${field}.ccImmobilizeOnly solo vale con \u00abAl aplicar control\u00bb`);
       rule.ccImmobilizeOnly = true;
     }
+    if (r.ccSlowIfMelee !== undefined && r.ccSlowIfMelee !== null && r.ccSlowIfMelee !== false) {
+      if (r.ccSlowIfMelee !== true) throw new HttpError(400, `${field}.ccSlowIfMelee tiene que ser true o false`);
+      if (!rule.ccImmobilizeOnly) throw new HttpError(400, `${field}.ccSlowIfMelee solo vale con \u00abSolo inmovilizaciones\u00bb`);
+      rule.ccSlowIfMelee = true;
+    }
+    if (r.championTargetsOnly !== undefined && r.championTargetsOnly !== null && r.championTargetsOnly !== false) {
+      if (r.championTargetsOnly !== true) throw new HttpError(400, `${field}.championTargetsOnly tiene que ser true o false`);
+      rule.championTargetsOnly = true;
+    }
+    const multiEnemyChampionPct = optNumber(r.multiEnemyChampionPct, `${field}.multiEnemyChampionPct`, 0, 1000);
+    if (multiEnemyChampionPct) rule.multiEnemyChampionPct = multiEnemyChampionPct;
     if (r.extendDuration !== undefined && r.extendDuration !== null && r.extendDuration !== false) {
       if (r.extendDuration !== true) throw new HttpError(400, `${field}.extendDuration tiene que ser true o false`);
       if (!['status', 'slow', 'vulnerable'].includes(rule.kind)) throw new HttpError(400, `${field}.extendDuration solo vale para estado / ralentizaci\u00f3n / Vulnerable`);
@@ -297,6 +349,16 @@ export function parseEffectBonusConfig(value: unknown): EffectBonusConfig {
       if (r.stackValue !== true) throw new HttpError(400, `${field}.stackValue tiene que ser true o false`);
       if (!rule.permanent) throw new HttpError(400, `${field}.stackValue solo vale con cargas permanentes`);
       rule.stackValue = true;
+    }
+    if (r.counterOnly !== undefined && r.counterOnly !== null && r.counterOnly !== false) {
+      if (r.counterOnly !== true) throw new HttpError(400, `${field}.counterOnly tiene que ser true o false`);
+      if (!rule.permanent) throw new HttpError(400, `${field}.counterOnly solo vale con cargas permanentes`);
+      rule.counterOnly = true;
+    }
+    if (r.championTakedownOnly !== undefined && r.championTakedownOnly !== null && r.championTakedownOnly !== false) {
+      if (r.championTakedownOnly !== true) throw new HttpError(400, `${field}.championTakedownOnly tiene que ser true o false`);
+      if (rule.trigger !== 'on-takedown') throw new HttpError(400, `${field}.championTakedownOnly solo vale con \u00abAl matar / asistir\u00bb`);
+      rule.championTakedownOnly = true;
     }
     const stacksPerTrigger = optNumber(r.stacksPerTrigger, `${field}.stacksPerTrigger`, 1, 999);
     if (stacksPerTrigger !== undefined) {
@@ -331,6 +393,29 @@ export function parseEffectBonusConfig(value: unknown): EffectBonusConfig {
     const chain = optNumber(source.chainTargets, 'bonus.chainTargets', 1, 10);
     if (chain !== undefined && !Number.isInteger(chain)) throw new HttpError(400, 'bonus.chainTargets tiene que ser un entero');
     if (chain && chain > 1) config.chainTargets = chain;
+  }
+  if (source.chainTargetsByLevel !== undefined && source.chainTargetsByLevel !== null) {
+    const list = source.chainTargetsByLevel;
+    if (!Array.isArray(list) || list.length > 20 || !list.every(n => typeof n === 'number' && Number.isInteger(n) && n >= 1 && n <= 10)) throw new HttpError(400, 'bonus.chainTargetsByLevel tiene que ser una lista de hasta 20 enteros entre 1 y 10');
+    if (list.length) config.chainTargetsByLevel = list as number[];
+  }
+  if (source.chainOnHit !== undefined && source.chainOnHit !== null) {
+    if (typeof source.chainOnHit !== 'boolean') throw new HttpError(400, 'bonus.chainOnHit tiene que ser true o false');
+    if (source.chainOnHit) config.chainOnHit = true;
+  }
+  if (source.hitsRequired !== undefined && source.hitsRequired !== null) {
+    const hits = optNumber(source.hitsRequired, 'bonus.hitsRequired', 2, 10);
+    if (hits !== undefined && !Number.isInteger(hits)) throw new HttpError(400, 'bonus.hitsRequired tiene que ser un entero');
+    if (hits) config.hitsRequired = hits;
+  }
+  if (source.hitsWindow !== undefined && source.hitsWindow !== null) {
+    const win = optNumber(source.hitsWindow, 'bonus.hitsWindow', 1, 20);
+    if (win !== undefined && !Number.isInteger(win)) throw new HttpError(400, 'bonus.hitsWindow tiene que ser un entero');
+    if (win && config.hitsRequired) config.hitsWindow = win;
+  }
+  if (source.hitsChampionsOnly !== undefined && source.hitsChampionsOnly !== null) {
+    if (typeof source.hitsChampionsOnly !== 'boolean') throw new HttpError(400, 'bonus.hitsChampionsOnly tiene que ser true o false');
+    if (source.hitsChampionsOnly && config.hitsRequired) config.hitsChampionsOnly = true;
   }
   if (source.maxTargets !== undefined && source.maxTargets !== null) {
     const max = optNumber(source.maxTargets, 'bonus.maxTargets', 1, 20);
