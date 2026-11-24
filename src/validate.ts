@@ -2564,6 +2564,25 @@ function itemStats(value: unknown): Record<string, number | string> {
   return stats;
 }
 
+/** Ítem nuevo (POST /api/items): nombre (único) e imagen opcional + la misma definición que el PUT. */
+export type ItemCreate = { nombre: string; imagen: string; update: ItemUpdate };
+export function parseItemCreate(body: unknown): ItemCreate {
+  const source = { ...asObject(body) };
+  const nombre = optionalText(source.nombre, 'nombre');
+  if (!nombre) throw new HttpError(400, 'El \u00edtem necesita un nombre');
+  if (nombre.length > 80) throw new HttpError(400, 'El nombre no puede superar 80 caracteres');
+  if (/[\u0000-\u001f]/.test(nombre)) throw new HttpError(400, 'El nombre tiene caracteres no v\u00e1lidos');
+  const imagen = optionalText(source.imagen, 'imagen') ?? '';
+  if (imagen.length > 500) throw new HttpError(400, 'La imagen no puede superar 500 caracteres');
+  if (imagen && !/^(https?:\/\/|\/)/i.test(imagen)) throw new HttpError(400, 'La imagen tiene que ser una URL (http://, https://) o una ruta que empiece por /');
+  delete source.nombre;
+  delete source.imagen;
+  if (source.stats === undefined) source.stats = {};
+  const update = parseItemUpdate(source);
+  if (update.rareza.length > 40) throw new HttpError(400, 'La rareza no puede superar 40 caracteres');
+  return { nombre, imagen, update };
+}
+
 /** Definición de un ítem para PUT /api/items. El nombre va en la query y no se puede cambiar. */
 export function parseItemUpdate(body: unknown): ItemUpdate {
   const source = asObject(body);
@@ -3319,6 +3338,10 @@ export type NpcInput = {
   abilities: NpcAbility[];
   /** Visible para los players (como «Activo» en campeones). */
   visible: boolean;
+  /** Monstruo grande / \u00e9pico (reglas \u00abSolo contra monstruos grandes\u00bb). */
+  largeMonster?: boolean;
+  /** Monstruo \u00e9pico (reglas \u00abSolo contra monstruos \u00e9picos\u00bb). */
+  epicMonster?: boolean;
 };
 
 function boundedText(value: unknown, field: string, max: number): string {
@@ -3442,6 +3465,14 @@ export function parseNpcInput(body: unknown, partial = false): Partial<NpcInput>
     if (typeof source.visible !== 'boolean') throw new HttpError(400, 'visible tiene que ser verdadero o falso');
     out.visible = source.visible;
   } else if (!partial) out.visible = false;
+  if (has('largeMonster') && source.largeMonster !== null) {
+    if (typeof source.largeMonster !== 'boolean') throw new HttpError(400, 'largeMonster tiene que ser verdadero o falso');
+    out.largeMonster = source.largeMonster;
+  }
+  if (has('epicMonster') && source.epicMonster !== null) {
+    if (typeof source.epicMonster !== 'boolean') throw new HttpError(400, 'epicMonster tiene que ser verdadero o falso');
+    out.epicMonster = source.epicMonster;
+  }
 
   if (partial && Object.keys(out).length === 0) throw new HttpError(400, 'No hay campos para actualizar');
   return out;

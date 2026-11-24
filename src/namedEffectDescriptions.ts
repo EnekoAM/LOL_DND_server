@@ -15,9 +15,10 @@ import { SHEET_STAT_KEYS } from './validate';
 type DescriptionDoc = { _id: string; description?: string; onHit?: boolean; bonus?: EffectBonusConfig; area?: AreaPattern; updatedAt: string };
 
 // ── Configurador de bonus (mismo modelo que web/src/data/effectBonus.ts) ──
-const TRIGGERS = ['always', 'on-hit', 'on-attack', 'after-ability', 'after-use', 'on-ability-hit', 'on-ability-damage', 'on-ability-use', 'on-cc', 'on-deal-any', 'on-deal-physical', 'on-deal-magic', 'on-deal-true', 'on-deal-or-cc', 'on-use', 'on-takedown', 'hp-below', 'on-damage-taken', 'on-attacked', 'each-turn', 'energized-max', 'on-ultimate-use', 'on-enemy-ultimate-use', 'combat-start', 'combat-entry', 'when-ready', 'on-survived-hit', 'on-death', 'on-ally-heal-shield'] as const;
-const KINDS = ['stat', 'damage', 'heal', 'shield', 'shield-magic', 'shield-physical', 'temp-hp', 'mana', 'slow', 'status', 'extra-on-hit', 'attack-speed', 'move-speed', 'vigor', 'damage-reduction', 'damage-amp', 'vulnerable', 'execute', 'extra-action', 'burn', 'crit-strike', 'cost-amp', 'arm-aa'] as const;
-const SCALING = ['baseAd', 'ad', 'bonusAd', 'ap', 'hp', 'bonusHp', 'missingHp', 'mana', 'bonusMana', 'armor', 'bonusArmor', 'mr', 'bonusMr', 'critChance', 'manaRegen', 'level', 'spe', 'targetMaxHp', 'targetCurrentHp', 'targetMissingHp', 'targetArmor', 'targetMr', 'targetSpe', 'lethality', 'dealtDamage', 'enemiesHit', 'effectStacks', 'currentMana', 'bonusManaRegen100', 'bonusManaLol', 'moveSpeedLol', 'bonusAtkSpePct', 'atkSpePct', 'adLol'] as const;
+const TRIGGERS = ['always', 'on-hit', 'on-attack', 'after-ability', 'after-use', 'on-ability-hit', 'on-ability-damage', 'on-ability-use', 'on-cc', 'on-cc-taken', 'on-champion-combat', 'on-deal-any', 'on-deal-or-cc', 'on-use', 'on-takedown', 'hp-below', 'on-damage-taken', 'on-attacked', 'each-turn', 'energized-max', 'on-ultimate-use', 'on-enemy-ultimate-use', 'combat-start', 'combat-entry', 'when-ready', 'on-survived-hit', 'on-death', 'on-ally-heal-shield', 'on-move'] as const;
+const LEGACY_DEAL_TRIGGERS: Record<string, 'physical' | 'magic' | 'true' | undefined> = { 'on-deal-physical': 'physical', 'on-deal-magic': 'magic', 'on-deal-true': 'true' };
+const KINDS = ['stat', 'damage', 'heal', 'shield', 'shield-magic', 'shield-physical', 'temp-hp', 'mana', 'slow', 'status', 'extra-on-hit', 'attack-speed', 'move-speed', 'vigor', 'damage-reduction', 'damage-amp', 'vulnerable', 'execute', 'extra-action', 'burn', 'crit-strike', 'cost-amp', 'arm-aa', 'on-hit-buff', 'shield-cut', 'effect-counter', 'ability-points', 'defer-damage', 'clear-effect', 'link-ally', 'link-redirect', 'link-heal'] as const;
+const SCALING = ['baseAd', 'ad', 'bonusAd', 'ap', 'hp', 'bonusHp', 'itemBonusHp', 'missingHp', 'mana', 'bonusMana', 'armor', 'bonusArmor', 'mr', 'bonusMr', 'critChance', 'manaRegen', 'level', 'spe', 'targetMaxHp', 'targetCurrentHp', 'targetMissingHp', 'targetArmor', 'targetMr', 'targetSpe', 'targetAtkSpePct', 'lethality', 'dealtDamage', 'enemiesHit', 'effectStacks', 'currentMana', 'bonusManaRegen100', 'bonusManaLol', 'moveSpeedLol', 'bonusAtkSpePct', 'atkSpePct', 'adLol', 'apLol', 'movedSpeedPct', 'dealtPreMitigation', 'effectCounter', 'healDone', 'shieldDone'] as const;
 const DAMAGE_TYPES = ['physical', 'magic', 'true'] as const;
 const MAX_RULES = 12;
 
@@ -30,6 +31,19 @@ export type EffectRule = {
   levelFrom?: 'target';
   /** Daño: cura al portador daño × su robo de vida %. */
   lifeSteal?: boolean;
+  /** Daño: cada objetivo puede ser crítico (como un AA). */
+  critRoll?: boolean;
+  /** Daño: los objetivos dañados reciben los efectos de impacto del portador. */
+  applyOnHit?: boolean;
+  /** Área / cercanos: máximo de cercanos. */
+  nearbyMax?: number;
+  markedEffect?: string;
+  markedChampionsMonstersOnly?: boolean;
+  confirmPrompt?: string;
+  fromApplierOnly?: boolean;
+  markAs?: string;
+  clearEffect?: string;
+  linkEffect?: string;
   stat?: string;
   flat?: number;
   ratios?: { stat: (typeof SCALING)[number]; pct: number }[];
@@ -41,6 +55,7 @@ export type EffectRule = {
   hpBelowPct?: number;
   hpAbovePct?: number;
   takenDamageTypes?: ('physical' | 'magic' | 'true')[];
+  dealtDamageTypes?: ('physical' | 'magic' | 'true')[];
   takenFromChampionsOnly?: boolean;
   targetHpBelowPct?: number;
   healFromDealtPct?: number;
@@ -49,6 +64,10 @@ export type EffectRule = {
   action?: string;
   dice?: string;
   everyN?: number;
+  counterTurns?: number;
+  /** Desborde a acci\u00f3n: cada m\u00faltiplo del total del stat \u2192 +1 acci\u00f3n y resta N del bonus. */
+  overflowAt?: number;
+  overflowAction?: 'abilities' | 'attacks';
   perTargetCounter?: boolean;
   missingHpScalePct?: number;
   selfMissingHpScale?: boolean;
@@ -59,6 +78,7 @@ export type EffectRule = {
   /** AD / AP del LoL de la regla. En un bonus de stat AD/AP se guarda y se acepta aunque no convierta a dados. */
   lolDice?: number;
   delayTurns?: number;
+  delayDeathArea?: boolean;
   /** Curaci\u00f3n repartida en N tramos (2-20). */
   healOverTurns?: number;
   halfAfterTurns?: number;
@@ -82,6 +102,11 @@ export type EffectRule = {
   ampMaxPct?: number;
   /** Solo si el portador lleva X turnos sin combatir con campeones enemigos. */
   outOfCombatTurns?: number;
+  /** Solo sin recibir da\u00f1o de campeones en N turnos / de no campeones en M (vac\u00edo = N). */
+  noDamageTurns?: number;
+  noDamageTurnsNonChampion?: number;
+  /** Solo si el escalado del portador es \u2265 value. */
+  minScaling?: { stat: (typeof SCALING)[number]; value: number };
   /** Siguiente AA cr\u00edtico: % del da\u00f1o cr\u00edtico total. */
   critDamagePct?: number;
   critCharges?: number;
@@ -101,6 +126,17 @@ export type EffectRule = {
   counterOnly?: boolean;
   /** \u00abAl matar / asistir\u00bb solo con campeones. */
   championTakedownOnly?: boolean;
+  cutActiveShields?: boolean;
+  counterName?: string;
+  counterScale?: boolean;
+  consumeCounter?: boolean;
+  eachDamagedTarget?: boolean;
+  counterMaxPerLevel?: number[];
+  excludeBearer?: boolean;
+  chainWoundedAlly?: boolean;
+  matchTriggerShield?: boolean;
+  basicAttackOnly?: boolean;
+  dealItemDamage?: boolean;
   /** Cura / escudo en \u00e1rea: se elige a qui\u00e9n al aplicar. */
   pickTargets?: boolean;
   /** on-cc: solo con controles que inmovilizan. */
@@ -109,6 +145,9 @@ export type EffectRule = {
   ccSlowIfMelee?: boolean;
   /** Solo si el objetivo es un campe\u00f3n. */
   championTargetsOnly?: boolean;
+  largeMonstersOnly?: boolean;
+  epicMonstersOnly?: boolean;
+  championOrEpicOnly?: boolean;
   /** +% si hay m\u00e1s de un campe\u00f3n enemigo vivo en combate. */
   multiEnemyChampionPct?: number;
   /** Estado / ralentizaci\u00f3n / Vulnerable: reaplicar suma la duraci\u00f3n (si no, la renueva). */
@@ -148,6 +187,9 @@ export type EffectBonusConfig = {
   hitsWindow?: number;
   /** Solo campeones. */
   hitsChampionsOnly?: boolean;
+  /** Da\u00f1o acumulado \u2265 X% de la vida m\u00e1xima del objetivo (0-100] en N turnos (1-20). */
+  dealtPctRequired?: number;
+  dealtPctWindow?: number;
   /** Enfriamiento por objetivo: el CD va en cada objetivo (marca por portador), no en el portador (Firmamento desgarrado). */
   perTargetCooldown?: boolean;
   /** Cada AA del portador reduce el CD restante en estos turnos (0.1-99, decimales). */
@@ -211,6 +253,15 @@ const APPLIES_TO_BY_KIND: Record<EffectRule['kind'], AppliesTo[]> = {
   'crit-strike': ['self'],
   'cost-amp': ['self'],
   'arm-aa': ['self'],
+  'on-hit-buff': ['self', 'allies'],
+  'shield-cut': [...DEBUFF_TO],
+  'effect-counter': ['self'],
+  'ability-points': ['self'],
+  'defer-damage': ['self'],
+  'clear-effect': ['self'],
+  'link-ally': ['self'],
+  'link-redirect': ['self'],
+  'link-heal': ['self'],
 };
 
 export function parseEffectBonusConfig(value: unknown): EffectBonusConfig {
@@ -222,7 +273,15 @@ export function parseEffectBonusConfig(value: unknown): EffectBonusConfig {
     const field = `bonus.rules[${index}]`;
     if (!entry || typeof entry !== 'object' || Array.isArray(entry)) throw new HttpError(400, `${field} tiene que ser un objeto`);
     const r = entry as Record<string, unknown>;
-    const rule: EffectRule = { trigger: oneOf(TRIGGERS, r.trigger, `${field}.trigger`), kind: oneOf(KINDS, r.kind, `${field}.kind`) };
+    // Disparadores antiguos \u00abAl infligir da\u00f1o f\u00edsico / m\u00e1gico / verdadero\u00bb \u2192 \u00abAl infligir da\u00f1o\u00bb + ese tipo.
+    const legacyDealt = typeof r.trigger === 'string' && Object.prototype.hasOwnProperty.call(LEGACY_DEAL_TRIGGERS, r.trigger) ? LEGACY_DEAL_TRIGGERS[r.trigger] : undefined;
+    const rule: EffectRule = { trigger: oneOf(TRIGGERS, legacyDealt ? 'on-deal-any' : r.trigger, `${field}.trigger`), kind: oneOf(KINDS, r.kind, `${field}.kind`) };
+    if ((r.dealtDamageTypes !== undefined && r.dealtDamageTypes !== null) || legacyDealt) {
+      if (r.dealtDamageTypes != null && !Array.isArray(r.dealtDamageTypes)) throw new HttpError(400, `${field}.dealtDamageTypes tiene que ser una lista`);
+      if (rule.trigger !== 'on-deal-any' && rule.trigger !== 'on-deal-or-cc' && rule.trigger !== 'on-ability-damage') throw new HttpError(400, `${field}.dealtDamageTypes solo vale con \u00abAl infligir da\u00f1o\u00bb, \u00abAl infligir da\u00f1o o aplicar control\u00bb o \u00abAl infligir da\u00f1o con una habilidad\u00bb`);
+      const list = [...new Set([...((r.dealtDamageTypes as unknown[] | null | undefined) ?? []).map((type, i) => oneOf(['physical', 'magic', 'true'] as const, type, `${field}.dealtDamageTypes[${i}]`)), ...(legacyDealt ? [legacyDealt] : [])])];
+      if (list.length && list.length < 3) rule.dealtDamageTypes = list;
+    }
     if (r.appliesTo !== undefined && r.appliesTo !== null) {
       const appliesTo = oneOf(['self', 'target', 'area', 'nearby', 'allies'] as const, r.appliesTo, `${field}.appliesTo`);
       const allowed = APPLIES_TO_BY_KIND[rule.kind];
@@ -238,6 +297,19 @@ export function parseEffectBonusConfig(value: unknown): EffectBonusConfig {
         rule.lifeSteal = true;
       }
     }
+    for (const key of ['critRoll', 'applyOnHit'] as const) {
+      if (r[key] === undefined || r[key] === null) continue;
+      if (typeof r[key] !== 'boolean') throw new HttpError(400, `${field}.${key} tiene que ser s\u00ed/no`);
+      if (r[key]) {
+        if (rule.kind !== 'damage') throw new HttpError(400, `${field}.${key} solo vale en reglas de da\u00f1o`);
+        rule[key] = true;
+      }
+    }
+    const nearbyMax = optNumber(r.nearbyMax, `${field}.nearbyMax`, 1, 20);
+    if (nearbyMax !== undefined) {
+      if (rule.appliesTo !== 'area' && rule.appliesTo !== 'nearby') throw new HttpError(400, `${field}.nearbyMax solo vale con \u00abObjetivo + cercanos\u00bb o \u00abSolo cercanos\u00bb`);
+      rule.nearbyMax = Math.floor(nearbyMax);
+    }
     if (r.stat !== undefined && r.stat !== null) rule.stat = oneOf([...SHEET_STAT_KEYS, 'adaptiveForce'] as const, r.stat, `${field}.stat`);
     if (rule.kind === 'stat' && !rule.stat) throw new HttpError(400, `${field}.stat es obligatoria en un bonus de stat`);
     const flat = optNumber(r.flat, `${field}.flat`, -9999, 9999);
@@ -247,7 +319,7 @@ export function parseEffectBonusConfig(value: unknown): EffectBonusConfig {
       rule.ratios = r.ratios.map((ratio, i) => {
         if (!ratio || typeof ratio !== 'object') throw new HttpError(400, `${field}.ratios[${i}] no es válido`);
         const x = ratio as Record<string, unknown>;
-        return { stat: oneOf(SCALING, x.stat, `${field}.ratios[${i}].stat`), pct: optNumber(x.pct, `${field}.ratios[${i}].pct`, -1000, 1000) ?? 0 };
+        return { stat: oneOf(SCALING, x.stat, `${field}.ratios[${i}].stat`), pct: optNumber(x.pct, `${field}.ratios[${i}].pct`, -100000, 100000) ?? 0 };
       });
     }
     if (r.perLevel !== undefined && r.perLevel !== null) {
@@ -259,6 +331,39 @@ export function parseEffectBonusConfig(value: unknown): EffectBonusConfig {
     if (slowPct !== undefined) rule.slowPct = slowPct;
     const statusName = optText(r.statusName, `${field}.statusName`, 40);
     if (statusName) rule.statusName = statusName;
+    if (r.counterMaxPerLevel !== undefined && r.counterMaxPerLevel !== null) {
+      if (!Array.isArray(r.counterMaxPerLevel) || r.counterMaxPerLevel.length > 20) throw new HttpError(400, `${field}.counterMaxPerLevel: hasta 20 valores`);
+      const list = r.counterMaxPerLevel.map((n, i) => {
+        const value = optNumber(n, `${field}.counterMaxPerLevel[${i}]`, 1, 999);
+        if (value === undefined || !Number.isInteger(value)) throw new HttpError(400, `${field}.counterMaxPerLevel[${i}] tiene que ser un entero`);
+        return value;
+      });
+      if (list.length) rule.counterMaxPerLevel = list;
+    }
+    const counterName = optText(r.counterName, `${field}.counterName`, 40);
+    if (counterName) rule.counterName = counterName;
+    const markedEffect = optText(r.markedEffect, `${field}.markedEffect`, 60);
+    if (markedEffect) {
+      if (!/^[a-z0-9-]+$/.test(markedEffect)) throw new HttpError(400, `${field}.markedEffect tiene que ser el id base de un efecto (p. ej. baleful-blaze)`);
+      rule.markedEffect = markedEffect;
+    }
+    const confirmPrompt = optText(r.confirmPrompt, `${field}.confirmPrompt`, 120);
+    if (confirmPrompt) rule.confirmPrompt = confirmPrompt;
+    const markAs = optText(r.markAs, `${field}.markAs`, 50);
+    if (markAs) {
+      if (!/^[a-z0-9-]+$/.test(markAs)) throw new HttpError(400, `${field}.markAs tiene que ser el id base de un efecto (p. ej. hypershot)`);
+      rule.markAs = markAs;
+    }
+    const clearEffect = optText(r.clearEffect, `${field}.clearEffect`, 50);
+    if (clearEffect) {
+      if (!/^[a-z0-9-]+$/.test(clearEffect)) throw new HttpError(400, `${field}.clearEffect tiene que ser el id base de un efecto (p. ej. ignore-pain)`);
+      rule.clearEffect = clearEffect;
+    }
+    const linkEffect = optText(r.linkEffect, `${field}.linkEffect`, 50);
+    if (linkEffect) {
+      if (!/^[a-z0-9-]+$/.test(linkEffect)) throw new HttpError(400, `${field}.linkEffect tiene que ser el id base de un efecto (p. ej. pledge)`);
+      rule.linkEffect = linkEffect;
+    }
     const count = optTurns(r.count, `${field}.count`);
     if (count) rule.count = count;
     const hpBelowPct = optNumber(r.hpBelowPct, `${field}.hpBelowPct`, 0, 100);
@@ -293,7 +398,19 @@ export function parseEffectBonusConfig(value: unknown): EffectBonusConfig {
       if (!Number.isInteger(everyN)) throw new HttpError(400, `${field}.everyN tiene que ser un entero`);
       rule.everyN = everyN;
     }
+    const counterTurns = optNumber(r.counterTurns, `${field}.counterTurns`, 1, 99);
+    if (counterTurns !== undefined) {
+      if (!Number.isInteger(counterTurns)) throw new HttpError(400, `${field}.counterTurns tiene que ser un entero`);
+      rule.counterTurns = counterTurns;
+    }
     if (r.perTargetCounter === true) rule.perTargetCounter = true;
+    const overflowAt = optNumber(r.overflowAt, `${field}.overflowAt`, 1, 999);
+    if (overflowAt !== undefined) {
+      if (!Number.isInteger(overflowAt)) throw new HttpError(400, `${field}.overflowAt tiene que ser un entero`);
+      if (rule.kind !== 'stat') throw new HttpError(400, `${field}.overflowAt solo vale con Bonus de stat`);
+      rule.overflowAt = overflowAt;
+      if (r.overflowAction === 'attacks' || r.overflowAction === 'abilities') rule.overflowAction = r.overflowAction;
+    }
     const missingHpScalePct = optNumber(r.missingHpScalePct, `${field}.missingHpScalePct`, 0, 1000);
     if (missingHpScalePct !== undefined) rule.missingHpScalePct = missingHpScalePct;
     if (r.selfMissingHpScale === true) rule.selfMissingHpScale = true;
@@ -304,6 +421,10 @@ export function parseEffectBonusConfig(value: unknown): EffectBonusConfig {
     if (lolDice !== undefined) rule.lolDice = lolDice;
     const delayTurns = optTurns(r.delayTurns, `${field}.delayTurns`);
     if (delayTurns) rule.delayTurns = delayTurns;
+    if (r.delayDeathArea !== undefined && r.delayDeathArea !== null && r.delayDeathArea !== false) {
+      if (r.delayDeathArea !== true) throw new HttpError(400, `${field}.delayDeathArea tiene que ser true o false`);
+      if (delayTurns) rule.delayDeathArea = true;
+    }
     const healOverTurns = optTurns(r.healOverTurns, `${field}.healOverTurns`);
     if (healOverTurns && healOverTurns >= 2) rule.healOverTurns = Math.min(20, healOverTurns);
     const halfAfterTurns = optTurns(r.halfAfterTurns, `${field}.halfAfterTurns`);
@@ -355,6 +476,20 @@ export function parseEffectBonusConfig(value: unknown): EffectBonusConfig {
     }
     const outOfCombatTurns = optTurns(r.outOfCombatTurns, `${field}.outOfCombatTurns`);
     if (outOfCombatTurns) rule.outOfCombatTurns = outOfCombatTurns;
+    const noDamageTurns = optTurns(r.noDamageTurns, `${field}.noDamageTurns`);
+    const noDamageTurnsNonChampion = optTurns(r.noDamageTurnsNonChampion, `${field}.noDamageTurnsNonChampion`);
+    if (noDamageTurnsNonChampion && !noDamageTurns) throw new HttpError(400, `${field}.noDamageTurnsNonChampion necesita noDamageTurns`);
+    if (noDamageTurns) {
+      rule.noDamageTurns = noDamageTurns;
+      if (noDamageTurnsNonChampion) rule.noDamageTurnsNonChampion = noDamageTurnsNonChampion;
+    }
+    if (r.minScaling !== undefined && r.minScaling !== null) {
+      if (typeof r.minScaling !== 'object' || Array.isArray(r.minScaling)) throw new HttpError(400, `${field}.minScaling no es v\u00e1lido`);
+      const min = r.minScaling as Record<string, unknown>;
+      const value = optNumber(min.value, `${field}.minScaling.value`, -100000, 100000);
+      if (value === undefined) throw new HttpError(400, `${field}.minScaling.value es obligatorio`);
+      rule.minScaling = { stat: oneOf(SCALING, min.stat, `${field}.minScaling.stat`), value };
+    }
     const critDamagePct = optNumber(r.critDamagePct, `${field}.critDamagePct`, 1, 500);
     if (critDamagePct !== undefined) {
       if (rule.kind !== 'crit-strike') throw new HttpError(400, `${field}.critDamagePct solo vale en \u00abSiguiente AA cr\u00edtico\u00bb`);
@@ -414,7 +549,7 @@ export function parseEffectBonusConfig(value: unknown): EffectBonusConfig {
     }
     if (r.ccImmobilizeOnly !== undefined && r.ccImmobilizeOnly !== null && r.ccImmobilizeOnly !== false) {
       if (r.ccImmobilizeOnly !== true) throw new HttpError(400, `${field}.ccImmobilizeOnly tiene que ser true o false`);
-      if (rule.trigger !== 'on-cc') throw new HttpError(400, `${field}.ccImmobilizeOnly solo vale con \u00abAl aplicar control\u00bb`);
+      if (rule.trigger !== 'on-cc' && rule.trigger !== 'on-cc-taken') throw new HttpError(400, `${field}.ccImmobilizeOnly solo vale con \u00abAl aplicar control\u00bb o \u00abAl recibir control\u00bb`);
       rule.ccImmobilizeOnly = true;
     }
     if (r.ccSlowIfMelee !== undefined && r.ccSlowIfMelee !== null && r.ccSlowIfMelee !== false) {
@@ -425,6 +560,24 @@ export function parseEffectBonusConfig(value: unknown): EffectBonusConfig {
     if (r.championTargetsOnly !== undefined && r.championTargetsOnly !== null && r.championTargetsOnly !== false) {
       if (r.championTargetsOnly !== true) throw new HttpError(400, `${field}.championTargetsOnly tiene que ser true o false`);
       rule.championTargetsOnly = true;
+    }
+    if (r.largeMonstersOnly !== undefined && r.largeMonstersOnly !== null && r.largeMonstersOnly !== false) {
+      if (r.largeMonstersOnly !== true) throw new HttpError(400, `${field}.largeMonstersOnly tiene que ser true o false`);
+      rule.largeMonstersOnly = true;
+    }
+    if (r.epicMonstersOnly !== undefined && r.epicMonstersOnly !== null && r.epicMonstersOnly !== false) {
+      if (r.epicMonstersOnly !== true) throw new HttpError(400, `${field}.epicMonstersOnly tiene que ser true o false`);
+      rule.epicMonstersOnly = true;
+    }
+    if (r.championOrEpicOnly !== undefined && r.championOrEpicOnly !== null && r.championOrEpicOnly !== false) {
+      if (r.championOrEpicOnly !== true) throw new HttpError(400, `${field}.championOrEpicOnly tiene que ser true o false`);
+      rule.championOrEpicOnly = true;
+    }
+    for (const key of ['cutActiveShields', 'dealItemDamage', 'counterScale', 'consumeCounter', 'eachDamagedTarget', 'basicAttackOnly', 'excludeBearer', 'chainWoundedAlly', 'matchTriggerShield', 'markedChampionsMonstersOnly', 'fromApplierOnly'] as const) {
+      const flag = r[key];
+      if (flag === undefined || flag === null || flag === false) continue;
+      if (flag !== true) throw new HttpError(400, `${field}.${key} tiene que ser true o false`);
+      rule[key] = true;
     }
     const multiEnemyChampionPct = optNumber(r.multiEnemyChampionPct, `${field}.multiEnemyChampionPct`, 0, 1000);
     if (multiEnemyChampionPct) rule.multiEnemyChampionPct = multiEnemyChampionPct;
@@ -456,7 +609,7 @@ export function parseEffectBonusConfig(value: unknown): EffectBonusConfig {
     const stacksPerTrigger = optNumber(r.stacksPerTrigger, `${field}.stacksPerTrigger`, 1, 999);
     if (stacksPerTrigger !== undefined) {
       if (!Number.isInteger(stacksPerTrigger)) throw new HttpError(400, `${field}.stacksPerTrigger tiene que ser un entero`);
-      if (!['stat', 'attack-speed', 'move-speed'].includes(rule.kind)) throw new HttpError(400, `${field}.stacksPerTrigger solo vale para bonus de stat / velocidad`);
+      if (!['stat', 'attack-speed', 'move-speed', 'damage-amp'].includes(rule.kind)) throw new HttpError(400, `${field}.stacksPerTrigger solo vale para bonus de stat / velocidad / amplificaci\u00f3n de da\u00f1o`);
       if (stacksPerTrigger >= 2) rule.stacksPerTrigger = stacksPerTrigger;
     }
     if (r.onlyIf !== undefined && r.onlyIf !== null && r.onlyIf !== '') {
@@ -509,6 +662,15 @@ export function parseEffectBonusConfig(value: unknown): EffectBonusConfig {
   if (source.hitsChampionsOnly !== undefined && source.hitsChampionsOnly !== null) {
     if (typeof source.hitsChampionsOnly !== 'boolean') throw new HttpError(400, 'bonus.hitsChampionsOnly tiene que ser true o false');
     if (source.hitsChampionsOnly && config.hitsRequired) config.hitsChampionsOnly = true;
+  }
+  if (source.dealtPctRequired !== undefined && source.dealtPctRequired !== null) {
+    const pct = optNumber(source.dealtPctRequired, 'bonus.dealtPctRequired', 0.01, 100);
+    if (pct) config.dealtPctRequired = pct;
+  }
+  if (source.dealtPctWindow !== undefined && source.dealtPctWindow !== null) {
+    const win = optNumber(source.dealtPctWindow, 'bonus.dealtPctWindow', 1, 20);
+    if (win !== undefined && !Number.isInteger(win)) throw new HttpError(400, 'bonus.dealtPctWindow tiene que ser un entero');
+    if (win && config.dealtPctRequired) config.dealtPctWindow = win;
   }
   if (source.maxTargets !== undefined && source.maxTargets !== null) {
     const max = optNumber(source.maxTargets, 'bonus.maxTargets', 1, 20);

@@ -103,6 +103,8 @@ app.patch('/api/champions', adapt(champions));
 app.get('/api/items', adapt(items));
 app.patch('/api/items', adapt(items));
 app.put('/api/items', adapt(items));
+app.post('/api/items', adapt(items));
+app.delete('/api/items', adapt(items));
 app.post('/api/craft', adapt(craft));
 app.post('/api/shop', adapt(shop));
 app.get('/api/history', adapt(history));

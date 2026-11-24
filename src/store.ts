@@ -7,7 +7,7 @@ import { LOOT_RULE_KEYS, parseLootRules } from './validate';
 import { FAQ_SEED } from './faqSeed';
 import { deleteNotesFor } from './playerNotes';
 import { assertNamedEffectIds } from './namedEffectsCustom';
-import type { RelationInput, RelationPatch, RelationRef, AugmentInput, NpcInput, FaqInput, FaqPatch, MapPoiInput, MapPoiKind, MapPoiPatch, ChampionAbility, ChampionFieldsPatch, CombatState, HistoryKind, ItemUpdate, LootRules, LootRulesPatch, PartyPatch, PlayerPatch, PlayerReplace, PlayerSheet, RolePatch, RollRecord, ShopOrder, TicketCommentInput, TicketInput, TicketStatus } from './validate';
+import type { RelationInput, RelationPatch, RelationRef, AugmentInput, NpcInput, FaqInput, FaqPatch, MapPoiInput, MapPoiKind, MapPoiPatch, ChampionAbility, ChampionFieldsPatch, CombatState, HistoryKind, ItemCreate, ItemUpdate, LootRules, LootRulesPatch, PartyPatch, PlayerPatch, PlayerReplace, PlayerSheet, RolePatch, RollRecord, ShopOrder, TicketCommentInput, TicketInput, TicketStatus } from './validate';
 
 const PUBLIC = { projection: { _id: 0, order: 0 } };
 const CI = { locale: 'es', strength: 2 } as const;
@@ -165,6 +165,58 @@ export async function updateItem(nombre: string, update: ItemUpdate) {
   const updateDoc: Document = Object.keys(unset).length ? { $set: set, $unset: unset } : { $set: set };
   await col.updateOne({ _id: existing._id }, updateDoc);
   return getItems(String(existing.nombre));
+}
+
+/**
+ * Ítem nuevo (bot\u00f3n \u00abA\u00f1adir objeto\u00bb): nombre \u00fanico (sin distinguir may\u00fasculas / acentos), cantidad 0, sin receta,
+ * al final del cat\u00e1logo (order). Marca custom: true (solo esos se pueden borrar). El resto lo pone updateItem.
+ */
+export async function createItem(input: ItemCreate) {
+  const col = await collection('items');
+  const exists = await col.findOne({ nombre: input.nombre }, { collation: CI });
+  if (exists) throw new HttpError(409, `Ya existe un \u00edtem llamado ${String(exists.nombre)}`);
+  if (Array.isArray(input.update.namedEffects) && input.update.namedEffects.length) await assertNamedEffectIds(input.update.namedEffects);
+  const last = await col.find({}, { projection: { order: 1 } }).sort({ order: -1 }).limit(1).toArray();
+  const lastOrder = typeof last[0]?.order === 'number' && Number.isFinite(last[0].order) ? last[0].order : await col.countDocuments();
+  const now = new Date().toISOString();
+  const inserted = await col.insertOne({
+    nombre: input.nombre,
+    rareza: input.update.rareza,
+    stats: {},
+    efecto: { pasiva: '-', activa: '-' },
+    cantidad: 0,
+    imagen: input.imagen,
+    craftsTo: [],
+    craftsFrom: [],
+    order: lastOrder + 1,
+    custom: true,
+    createdAt: now,
+    updatedAt: now,
+  });
+  try {
+    return await updateItem(input.nombre, input.update);
+  } catch (error) {
+    await col.deleteOne({ _id: inserted.insertedId });
+    throw error;
+  }
+}
+
+/** Borra un ítem creado desde la app (custom), sin copias en stock, sin equipar y fuera de cualquier receta. */
+export async function deleteItem(nombre: string) {
+  const trimmed = nombre.trim();
+  if (!trimmed) throw new HttpError(400, 'Falta el nombre del \u00edtem');
+  const col = await collection('items');
+  const existing = await col.findOne({ nombre: trimmed }, { collation: CI });
+  if (!existing) throw new HttpError(404, `No existe el item ${trimmed}`);
+  if (existing.custom !== true) throw new HttpError(400, 'Solo se pueden borrar los \u00edtems a\u00f1adidos desde la app');
+  const name = String(existing.nombre);
+  if (countOf(existing.cantidad) > 0) throw new HttpError(409, `${name} tiene copias en stock (${countOf(existing.cantidad)}): qu\u00edtalas antes de borrarlo`);
+  const equipped = (await equippedCounts()).get(itemKey(name)) ?? 0;
+  if (equipped > 0) throw new HttpError(409, `${name} est\u00e1 equipado por ${equipped} jugador(es): qu\u00edtaselo antes de borrarlo`);
+  const inRecipe = await col.findOne({ _id: { $ne: existing._id }, $or: [{ craftsFrom: name }, { craftsTo: name }] }, { collation: CI });
+  if (inRecipe) throw new HttpError(409, `${name} aparece en la receta de ${String(inRecipe.nombre)}`);
+  await col.deleteOne({ _id: existing._id });
+  return { deleted: name };
 }
 
 /** Hora de España (península), como "01/01/2026 12:00:00". */
@@ -1088,21 +1140,73 @@ async function partyLevelNow(): Promise<number> {
   return typeof doc?.level === 'number' && doc.level >= 1 ? Math.floor(doc.level) : 1;
 }
 
-/** Siempre devuelve rangos y puntos libres coherentes con el nivel actual del grupo. */
-function withRanks<T extends Document>(doc: T, level: number): T & { abilityRanks: AbilityRanks; unassignedPoints: number } {
-  const ranks = normalizeRanks(doc.abilityRanks, level);
-  return { ...doc, abilityRanks: ranks, unassignedPoints: unassignedPoints(ranks, level) };
+type BonusPointsSource = { equipamiento?: unknown; stacks?: unknown };
+type BonusRule = { kind?: unknown; trigger?: unknown; flat?: unknown; requiresMaxStacks?: unknown; maxStacks?: unknown; permanent?: unknown; stackValue?: unknown; counterOnly?: unknown };
+
+/**
+ * Puntos de habilidad extra por player (igual que bonusAbilityPoints del web): reglas «Puntos de habilidad extra» («Siempre»)
+ * de los efectos con nombre de sus ítems equipados; con «Requiere el máximo», solo con las cargas permanentes (stacks effect:<id>) al máximo.
+ */
+async function abilityPointBonusResolver(): Promise<(doc: object) => number> {
+  const descDocs = await (await collection('namedEffectDescriptions')).find({}, { projection: { bonus: 1 } }).toArray();
+  const rulesById = new Map<string, BonusRule[]>();
+  for (const d of descDocs) {
+    const rules = (d.bonus as { rules?: unknown } | undefined)?.rules;
+    if (Array.isArray(rules)) rulesById.set(String(d._id), rules as BonusRule[]);
+  }
+  if (![...rulesById.values()].some(rules => rules.some(r => r.kind === 'ability-points'))) return (_doc: object) => 0;
+  const rulesOf = (id: string): BonusRule[] => {
+    const own = rulesById.get(id);
+    if (own && own.length) return own;
+    return id.includes(':') ? rulesById.get(id.split(':')[0]) ?? [] : own ?? [];
+  };
+  const itemDocs = await (await collection('items')).find({ 'namedEffects.0': { $exists: true } }, { projection: { nombre: 1, namedEffects: 1 } }).toArray();
+  const effectsByItem = new Map<string, string[]>();
+  for (const it of itemDocs) if (typeof it.nombre === 'string' && Array.isArray(it.namedEffects)) effectsByItem.set(it.nombre.toLowerCase(), it.namedEffects.filter((x: unknown): x is string => typeof x === 'string'));
+  return source => {
+    const doc = source as BonusPointsSource;
+    const equipment = Array.isArray(doc.equipamiento) ? doc.equipamiento.filter((x): x is string => typeof x === 'string') : [];
+    const stacks = doc.stacks && typeof doc.stacks === 'object' && !Array.isArray(doc.stacks) ? doc.stacks as Record<string, unknown> : {};
+    const seen = new Set<string>();
+    let total = 0;
+    for (const name of equipment) {
+      for (const id of effectsByItem.get(name.trim().toLowerCase()) ?? []) {
+        if (seen.has(id)) continue;
+        seen.add(id);
+        const rules = rulesOf(id);
+        for (const rule of rules) {
+          if (rule.kind !== 'ability-points' || rule.trigger !== 'always') continue;
+          if (rule.requiresMaxStacks === true) {
+            const maxes = rules.filter(r => r.permanent === true && !r.stackValue).map(r => Number(r.maxStacks)).filter(n => Number.isFinite(n) && n > 0);
+            const have = Math.floor(Number(stacks[`effect:${id}`]) || 0);
+            if (!maxes.length || have < Math.max(...maxes)) continue;
+          }
+          const flat = Number(rule.flat);
+          total += Number.isFinite(flat) && flat >= 1 ? Math.floor(flat) : 1;
+        }
+      }
+    }
+    return Math.min(20, total);
+  };
+}
+
+/** Siempre devuelve rangos y puntos libres coherentes con el nivel actual del grupo (+ puntos extra de su equipo). */
+function withRanks<T extends Document>(doc: T, level: number, bonus = 0): T & { abilityRanks: AbilityRanks; unassignedPoints: number; bonusAbilityPoints?: number } {
+  const ranks = normalizeRanks(doc.abilityRanks, level, bonus);
+  return { ...doc, abilityRanks: ranks, unassignedPoints: unassignedPoints(ranks, level, bonus), ...(bonus ? { bonusAbilityPoints: bonus } : {}) };
 }
 
 /** Recalcula y guarda rangos/puntos libres de todos los jugadores (al cambiar el nivel del grupo). */
 export async function reconcileAbilityRanks(level?: number): Promise<number> {
   const current = level ?? (await partyLevelNow());
   const col = await players();
-  const docs = await col.find({}, { projection: { abilityRanks: 1, unassignedPoints: 1 } }).toArray();
+  const docs = await col.find({}, { projection: { abilityRanks: 1, unassignedPoints: 1, equipamiento: 1, stacks: 1 } }).toArray();
+  const bonusOf = await abilityPointBonusResolver();
   let changed = 0;
   for (const doc of docs) {
-    const ranks = normalizeRanks(doc.abilityRanks, current);
-    const free = unassignedPoints(ranks, current);
+    const bonus = bonusOf(doc);
+    const ranks = normalizeRanks(doc.abilityRanks, current, bonus);
+    const free = unassignedPoints(ranks, current, bonus);
     const same =
       doc.unassignedPoints === free &&
       RANKED_SLOTS.every(slot => doc.abilityRanks?.[slot] === ranks[slot]);
@@ -1114,23 +1218,26 @@ export async function reconcileAbilityRanks(level?: number): Promise<number> {
 }
 
 export async function listPlayers() {
-  const [docs, level] = await Promise.all([
+  const [docs, level, bonusOf] = await Promise.all([
     (await players()).find({}, PUBLIC).sort({ order: 1 }).toArray(),
     partyLevelNow(),
+    abilityPointBonusResolver(),
   ]);
-  return docs.map(doc => withRanks(doc, level));
+  return docs.map(doc => withRanks(doc, level, bonusOf(doc)));
 }
 
 export async function getPlayer(name: string) {
   const doc = await (await players()).findOne({ name }, { ...PUBLIC, collation: CI });
   if (!doc) throw new HttpError(404, `No existe el jugador ${name}`);
-  return withRanks(doc, await partyLevelNow());
+  const [level, bonusOf] = await Promise.all([partyLevelNow(), abilityPointBonusResolver()]);
+  return withRanks(doc, level, bonusOf(doc));
 }
 
 /** Aplica el cambio de rangos paso a paso para dar un error claro (sin puntos, R bloqueada…). */
 async function nextAbilityRanks(existing: PlayerDoc, patch: NonNullable<PlayerPatch['abilityRanks']>) {
-  const level = await partyLevelNow();
-  const ranks = normalizeRanks(existing.abilityRanks, level);
+  const [level, bonusOf] = await Promise.all([partyLevelNow(), abilityPointBonusResolver()]);
+  const bonus = bonusOf(existing);
+  const ranks = normalizeRanks(existing.abilityRanks, level, bonus);
   const lowered = { ...ranks };
   for (const slot of RANKED_SLOTS) {
     const wanted = patch[slot];
@@ -1141,8 +1248,8 @@ async function nextAbilityRanks(existing: PlayerDoc, patch: NonNullable<PlayerPa
     const wanted = patch[slot];
     if (wanted === undefined) continue;
     while (next[slot] < wanted) {
-      if (!canRaise(next, slot, level)) {
-        if (unassignedPoints(next, level) <= 0) throw new HttpError(400, 'No quedan puntos de habilidad sin asignar');
+      if (!canRaise(next, slot, level, bonus)) {
+        if (unassignedPoints(next, level, bonus) <= 0) throw new HttpError(400, 'No quedan puntos de habilidad sin asignar');
         if (slot === 'R') {
           throw new HttpError(400, `La definitiva solo sube en los niveles 6, 11 y 16 (a nivel ${level}, máximo ${ultRankCap(level)})`);
         }
@@ -1151,7 +1258,7 @@ async function nextAbilityRanks(existing: PlayerDoc, patch: NonNullable<PlayerPa
       next[slot]++;
     }
   }
-  return { ranks: next, unassignedPoints: unassignedPoints(next, level) };
+  return { ranks: next, unassignedPoints: unassignedPoints(next, level, bonus) };
 }
 
 const CHAMPION_ABILITY_KIND = {
@@ -2057,6 +2164,8 @@ function toNpc(doc: Document): NpcEntry {
     stats: doc.stats && typeof doc.stats === 'object' && !Array.isArray(doc.stats) ? doc.stats as NpcInput['stats'] : {},
     abilities: Array.isArray(doc.abilities) ? doc.abilities as NpcInput['abilities'] : [],
     visible: doc.visible === true,
+    ...(doc.largeMonster === true ? { largeMonster: true } : {}),
+    ...(doc.epicMonster === true ? { epicMonster: true } : {}),
     createdAt: created.toISOString(),
   };
   if (doc.updatedAt instanceof Date) entry.updatedAt = doc.updatedAt.toISOString();

@@ -32,8 +32,9 @@ export function milestoneRank(level: number): number {
   return Math.max(1, MILESTONE_LEVELS.filter(threshold => level >= threshold).length);
 }
 
-export function totalPoints(level: number): number {
-  return Math.max(0, Math.floor(level));
+/** Puntos totales: 1 por nivel + los extra (efectos con nombre: Eternidad al m\u00e1ximo de cargas). */
+export function totalPoints(level: number, bonus = 0): number {
+  return Math.max(0, Math.floor(level) + Math.max(0, Math.floor(bonus)));
 }
 
 export function spentPoints(ranks: AbilityRanks): number {
@@ -48,12 +49,12 @@ function toRank(value: unknown): number {
  * Rangos válidos para el nivel: recorta la R a lo desbloqueado y, si sobran puntos gastados
  * (p. ej. al bajar de nivel), quita de la básica más alta (E, W, Q) y, si no quedan, de la R.
  */
-export function normalizeRanks(value: unknown, level: number): AbilityRanks {
+export function normalizeRanks(value: unknown, level: number, bonus = 0): AbilityRanks {
   const source = value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
   const ranks: AbilityRanks = { ...EMPTY_RANKS };
   for (const slot of RANKED_SLOTS) ranks[slot] = Math.min(toRank(source[slot]), maxRank(slot));
   ranks.R = Math.min(ranks.R, ultRankCap(level));
-  let excess = spentPoints(ranks) - totalPoints(level);
+  let excess = spentPoints(ranks) - totalPoints(level, bonus);
   while (excess > 0) {
     const highest = (['H3', 'H2', 'H1'] as const).reduce((best, slot) => (ranks[slot] > ranks[best] ? slot : best), 'H3' as RankedSlot);
     if (ranks[highest] > 0) ranks[highest]--;
@@ -64,13 +65,13 @@ export function normalizeRanks(value: unknown, level: number): AbilityRanks {
   return ranks;
 }
 
-export function unassignedPoints(ranks: AbilityRanks, level: number): number {
-  return Math.max(0, totalPoints(level) - spentPoints(ranks));
+export function unassignedPoints(ranks: AbilityRanks, level: number, bonus = 0): number {
+  return Math.max(0, totalPoints(level, bonus) - spentPoints(ranks));
 }
 
 /** Se puede subir si quedan puntos, no está al máximo y (R) el nivel lo desbloquea. */
-export function canRaise(ranks: AbilityRanks, slot: RankedSlot, level: number): boolean {
-  if (unassignedPoints(ranks, level) <= 0) return false;
+export function canRaise(ranks: AbilityRanks, slot: RankedSlot, level: number, bonus = 0): boolean {
+  if (unassignedPoints(ranks, level, bonus) <= 0) return false;
   const cap = slot === 'R' ? Math.min(ULT_MAX_RANK, ultRankCap(level)) : BASIC_MAX_RANK;
   return ranks[slot] < cap;
 }
