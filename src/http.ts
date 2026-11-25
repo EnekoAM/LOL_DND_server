@@ -49,6 +49,11 @@ export function withErrors(handler: ApiHandler): ApiHandler {
     } catch (error) {
       if (error instanceof HttpError) {
         if (error.status >= 500) logError(error);
+        // 400: deja rastro en la consola de la API (qué op y por qué) para poder arreglarlo.
+        if (error.status === 400) {
+          const op = req.body && typeof req.body === 'object' && typeof (req.body as Record<string, unknown>).op === 'string' ? ` op=${String((req.body as Record<string, unknown>).op)}` : '';
+          console.warn(`[400] ${req.method ?? ''}${op}: ${error.message}`);
+        }
         res.status(error.status).json({ error: error.message });
         return;
       }

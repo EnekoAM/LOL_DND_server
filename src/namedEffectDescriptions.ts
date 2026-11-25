@@ -17,7 +17,7 @@ type DescriptionDoc = { _id: string; description?: string; onHit?: boolean; bonu
 // ── Configurador de bonus (mismo modelo que web/src/data/effectBonus.ts) ──
 const TRIGGERS = ['always', 'on-hit', 'on-attack', 'after-ability', 'after-use', 'on-ability-hit', 'on-ability-damage', 'on-ability-use', 'on-cc', 'on-cc-taken', 'on-champion-combat', 'on-deal-any', 'on-deal-or-cc', 'on-use', 'on-takedown', 'hp-below', 'on-damage-taken', 'on-attacked', 'each-turn', 'energized-max', 'on-ultimate-use', 'on-enemy-ultimate-use', 'combat-start', 'combat-entry', 'when-ready', 'on-survived-hit', 'on-death', 'on-ally-heal-shield', 'on-move'] as const;
 const LEGACY_DEAL_TRIGGERS: Record<string, 'physical' | 'magic' | 'true' | undefined> = { 'on-deal-physical': 'physical', 'on-deal-magic': 'magic', 'on-deal-true': 'true' };
-const KINDS = ['stat', 'damage', 'heal', 'shield', 'shield-magic', 'shield-physical', 'temp-hp', 'mana', 'slow', 'status', 'extra-on-hit', 'attack-speed', 'move-speed', 'vigor', 'damage-reduction', 'damage-amp', 'vulnerable', 'execute', 'extra-action', 'burn', 'crit-strike', 'cost-amp', 'arm-aa', 'on-hit-buff', 'shield-cut', 'effect-counter', 'ability-points', 'defer-damage', 'clear-effect', 'link-ally', 'link-redirect', 'link-heal'] as const;
+const KINDS = ['stat', 'damage', 'heal', 'shield', 'shield-magic', 'shield-physical', 'temp-hp', 'mana', 'slow', 'status', 'extra-on-hit', 'attack-speed', 'move-speed', 'vigor', 'damage-reduction', 'damage-amp', 'vulnerable', 'execute', 'extra-action', 'burn', 'poison', 'crit-strike', 'cost-amp', 'arm-aa', 'on-hit-buff', 'shield-cut', 'effect-counter', 'ability-points', 'defer-damage', 'clear-effect', 'link-ally', 'link-redirect', 'link-heal'] as const;
 const SCALING = ['baseAd', 'ad', 'bonusAd', 'ap', 'hp', 'bonusHp', 'itemBonusHp', 'missingHp', 'mana', 'bonusMana', 'armor', 'bonusArmor', 'mr', 'bonusMr', 'critChance', 'manaRegen', 'level', 'spe', 'targetMaxHp', 'targetCurrentHp', 'targetMissingHp', 'targetArmor', 'targetMr', 'targetSpe', 'targetAtkSpePct', 'lethality', 'dealtDamage', 'enemiesHit', 'effectStacks', 'currentMana', 'bonusManaRegen100', 'bonusManaLol', 'moveSpeedLol', 'bonusAtkSpePct', 'atkSpePct', 'adLol', 'apLol', 'movedSpeedPct', 'dealtPreMitigation', 'effectCounter', 'healDone', 'shieldDone'] as const;
 const DAMAGE_TYPES = ['physical', 'magic', 'true'] as const;
 const MAX_RULES = 12;
@@ -158,6 +158,8 @@ export type EffectRule = {
   bounceLeftoverPct?: number;
   /** Da\u00f1o: fijo contra no campeones (sustituye al fijo). */
   nonChampionFlat?: number;
+  minValue?: number;
+  nonChampionMax?: number;
   /** Decae durante la duración (stat / velocidades con turnos; no con permanent). */
   decays?: boolean;
   /** Cargas permanentes por disparo (por defecto 1; no se guarda si es 1). */
@@ -248,6 +250,7 @@ const APPLIES_TO_BY_KIND: Record<EffectRule['kind'], AppliesTo[]> = {
   'damage-amp': ['self'],
   vulnerable: [...DEBUFF_TO],
   burn: [...DEBUFF_TO],
+  poison: [...DEBUFF_TO],
   execute: ['target', 'area', 'nearby'],
   'extra-action': ['self'],
   'crit-strike': ['self'],
@@ -546,6 +549,12 @@ export function parseEffectBonusConfig(value: unknown): EffectBonusConfig {
     if (nonChampionFlat !== undefined) {
       if (rule.kind !== 'damage') throw new HttpError(400, `${field}.nonChampionFlat solo vale en reglas de da\u00f1o`);
       rule.nonChampionFlat = nonChampionFlat;
+    }
+    for (const key of ['minValue', 'nonChampionMax'] as const) {
+      const value = optNumber(r[key], `${field}.${key}`, 0, 100000);
+      if (value === undefined) continue;
+      if (rule.kind !== 'damage') throw new HttpError(400, `${field}.${key} solo vale en reglas de da\u00f1o`);
+      rule[key] = value;
     }
     if (r.ccImmobilizeOnly !== undefined && r.ccImmobilizeOnly !== null && r.ccImmobilizeOnly !== false) {
       if (r.ccImmobilizeOnly !== true) throw new HttpError(400, `${field}.ccImmobilizeOnly tiene que ser true o false`);

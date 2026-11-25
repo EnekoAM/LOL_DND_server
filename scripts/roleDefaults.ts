@@ -265,7 +265,7 @@ const tanque: StatLine[] = [
   row(90, '4d4', '4d4', 11, 1, 1),
 ];
 
-export const DEFAULT_ROLE_TABLES: RoleTable[] = [
+const BASE_ROLE_TABLES: RoleTable[] = [
   { id: 'mago', name: 'Mago', levels: withDefense(withHp(mago, 8), 9, 5) },
   { id: 'asesino-ad', name: 'Asesino AD', levels: withActions(withDefense(withHp(asesinoAd, 9), 10, 5), [1, 2, 2, 2], [2, 3, 3, 4]) },
   { id: 'asesino-ap', name: 'Asesino AP', levels: withActions(withDefense(withHp(asesinoAp, 9), 10, 5), [1, 1, 2, 2], [2, 3, 4, 4]) },
@@ -286,3 +286,11 @@ export const DEFAULT_ROLE_TABLES: RoleTable[] = [
   { id: 'luchador-ap', name: 'Luchador AP', levels: withDefense(withHp(luchadorAp, 11), 11, 6) },
   { id: 'tanque', name: 'Tanque', levels: withActions(withDefense(withHp(tanque, 13, [10, 15, 20]), 12, 6), null, [1, 1, 2, 2]) },
 ];
+
+/** Rango de ataque base: Support, Mago y Tirador 3; el resto 1 (todos los niveles). */
+const RANGED_ROLE_IDS = new Set(['mago', 'tirador', 'support']);
+
+export const DEFAULT_ROLE_TABLES: RoleTable[] = BASE_ROLE_TABLES.map(table => ({
+  ...table,
+  levels: table.levels.map(level => ({ ...level, range: RANGED_ROLE_IDS.has(table.id) ? 3 : 1 })),
+}));

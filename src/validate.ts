@@ -37,7 +37,32 @@ export type PartyPatch = Partial<Record<(typeof PARTY_FIELDS)[number], number>> 
   aumentosForPlayers?: boolean;
   /** Ruleta de aumentos: probabilidad (%) de cada rareza y coste en oro por tirada. */
   aumentoRoll?: AumentoRollSettings;
+  /** Combo Breaker en combate: números editables. */
+  comboBreaker?: ComboBreakerSettings;
 };
+
+/** Ruptura de control: requiredTurns de los últimos windowTurns turnos inmovilizado → limpia CC, inmune immuneTurns. */
+export type ComboBreakerSettings = {
+  enabled: boolean;
+  windowTurns: number;
+  requiredTurns: number;
+  immuneTurns: number;
+};
+
+function parseComboBreaker(value: unknown): ComboBreakerSettings {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new HttpError(400, 'comboBreaker tiene que ser un objeto');
+  const src = value as Record<string, unknown>;
+  // enabled se ignora: la Ruptura vale siempre para todos.
+  const int = (key: string, min: number, max: number): number => {
+    const n = src[key];
+    if (typeof n !== 'number' || !Number.isInteger(n) || n < min || n > max) throw new HttpError(400, `comboBreaker.${key} tiene que ser un entero de ${min} a ${max}`);
+    return n;
+  };
+  const windowTurns = int('windowTurns', 1, 10);
+  const requiredTurns = int('requiredTurns', 1, 10);
+  if (requiredTurns > windowTurns) throw new HttpError(400, 'comboBreaker.requiredTurns no puede superar windowTurns');
+  return { enabled: true, windowTurns, requiredTurns, immuneTurns: int('immuneTurns', 0, 10) };
+}
 
 /** Ruleta de aumentos: primero sale una rareza según estas probabilidades (suman 100) y luego 3 aumentos al azar de esa rareza. */
 export type AumentoRollSettings = {
@@ -71,8 +96,8 @@ function parseAumentoRoll(value: unknown): AumentoRollSettings {
   return { probs, cost };
 }
 
+/** Todos los ataques básicos usan el AD (daño físico): solo se acepta type AD. */
 export type BasicAttackEntry = { type: string; scaling: number[] };
-/** Un tipo (formato antiguo) o varios (p. ej. AD + AP). */
 export type BasicAttack = BasicAttackEntry | BasicAttackEntry[];
 
 export type PlayerPatch = {
@@ -314,13 +339,16 @@ function basicAttackEntry(value: unknown, field: string): BasicAttackEntry {
   if (typeof attack.type !== 'string' || !attack.type.trim()) {
     throw new HttpError(400, `${field}.type tiene que ser un texto`);
   }
+  if (attack.type.trim().toUpperCase() !== 'AD') {
+    throw new HttpError(400, `${field}.type: los ataques b\u00e1sicos solo usan AD (da\u00f1o f\u00edsico)`);
+  }
   if (!Array.isArray(attack.scaling) || attack.scaling.some(n => typeof n !== 'number' || !Number.isFinite(n))) {
     throw new HttpError(400, `${field}.scaling tiene que ser una lista de números`);
   }
-  return { type: attack.type.trim(), scaling: attack.scaling };
+  return { type: 'AD', scaling: attack.scaling };
 }
 
-/** Acepta un objeto { type, scaling } o una lista de ellos (p. ej. AD + AP). */
+/** Acepta un objeto { type: 'AD', scaling } o una lista de ellos. */
 function basicAttack(value: unknown): BasicAttack {
   if (Array.isArray(value)) {
     if (!value.length) throw new HttpError(400, 'basicAttack no puede ser una lista vacía');
@@ -437,6 +465,7 @@ export function parsePartyPatch(body: unknown): PartyPatch {
     patch.aumentosForPlayers = source.aumentosForPlayers;
   }
   if (source.aumentoRoll !== undefined) patch.aumentoRoll = parseAumentoRoll(source.aumentoRoll);
+  if (source.comboBreaker !== undefined) patch.comboBreaker = parseComboBreaker(source.comboBreaker);
   if (Object.keys(patch).length === 0) throw new HttpError(400, 'No hay campos para actualizar');
   return patch;
 }
@@ -795,6 +824,7 @@ export type ChampionSlot = (typeof CHAMPION_SLOTS)[number];
 
 export type ChampionAbilityDamage = {
   type?: string;
+  flat?: number[];
   ap?: number[];
   ad?: number[];
   adSource?: 'total' | 'bonus';
@@ -805,7 +835,8 @@ export type ChampionAbilityDamage = {
   hpFrom?: 'target' | 'self';
   hpAdPer100?: number;
   hpAdPer?: number;
-  hpAdSource?: 'total' | 'bonus' | 'itemDiceAvg';
+  hpAdSource?: 'total' | 'bonus' | 'itemDiceAvg' | 'hitRoll';
+  hpCapNonChampion?: number;
 };
 
 export type ChampionAbilityEffect = {
@@ -848,7 +879,7 @@ export type ChampionAbility = {
 export type ChampionAbilityMechanics = {
   /** reducePerChampionHit: cada campeón enemigo alcanzado (AA / habilidad) quita N turnos a la recarga. */
   charges?: { start: number; max: number; recharge: number[]; reducePerChampionHit?: number };
-  stacks?: { turns: number; max: number; required?: number; onAa?: boolean; onAbilityHit?: boolean; onChampionTakedown?: boolean; onNonChampionKill?: boolean; stat?: string; perStack?: number[]; perTarget?: boolean; requiresDamage?: boolean; onChampionCc?: boolean; consumeAtMax?: boolean; countersPerTarget?: boolean; onMaxDamage?: boolean; onMaxSelfStats?: { stat: string; values: number[]; turns: number }[]; onMaxCooldown?: number; onMaxHeal?: { selfRatios?: { stat: CastPoolStat; values: number[] }[]; allyRatios?: { stat: CastPoolStat; values: number[] }[]; alliesToo?: boolean; flat?: number[]; flatByLevel?: boolean }; armArmedAaAtMax?: boolean; armArmedAaTurns?: number; onMaxStatus?: { name?: string; stat?: string; amount?: number; pct?: number } };
+  stacks?: { turns: number; max: number; required?: number; onAa?: boolean; onAbilityHit?: boolean; fromAbilities?: string[]; fromAbilitiesStacks?: number; onMaxAdFromHit?: boolean; onChampionTakedown?: boolean; onNonChampionKill?: boolean; stat?: string; perStack?: number[]; perTarget?: boolean; requiresDamage?: boolean; onChampionCc?: boolean; consumeAtMax?: boolean; countersPerTarget?: boolean; onMaxDamage?: boolean; onMaxSelfStats?: { stat: string; values: number[]; turns: number }[]; onMaxCooldown?: number; onMaxHeal?: { selfRatios?: { stat: CastPoolStat | 'apLol' | 'adLol'; values: number[] }[]; allyRatios?: { stat: CastPoolStat; values: number[] }[]; alliesToo?: boolean; flat?: number[]; flatByLevel?: boolean; lolScale?: boolean }; armArmedAaAtMax?: boolean; armArmedAaTurns?: number; onMaxStatus?: { name?: string; stat?: string; amount?: number; pct?: number } };
   requireStacks?: { from: string; count: number; consume?: boolean };
   permanentStacks?: { onAbilityChampionHit?: boolean; onTakedown?: boolean; takedownChampion?: number; takedownOther?: number; stat?: string; perStack?: number[]; byLevel?: boolean };
   grantPermanent?: { from: string; maxPerCast?: number; onKill?: boolean; perConsumedStack?: boolean };
@@ -866,21 +897,26 @@ export type ChampionAbilityMechanics = {
   effectRules?: EffectBonusConfig;
   /** Bonus de stat por tenerla aprendida, por rango. */
   learnedStats?: { stat: SheetStatKey; values: number[] }[];
+  allyAura?: { name: string; turns: number; range?: number; stats: { stat: SheetStatKey; values: number[] }[]; selfToo?: boolean };
+  noEffectLock?: boolean;
+  /** Pasiva condicional (botón activar / quitar). */
+  conditionalStats?: { label: string; stats: { stat: SheetStatKey; values: number[]; pct?: boolean }[]; hintStatus?: string };
   /** Escudo / curación al portador al usarla. */
   /** target ally = a los aliados elegidos; requiresHit = solo si alcanza a un enemigo; alliesToo = también a aliados que se elijan. */
   castPool?: { kind: 'shield' | 'heal'; ratios: { stat: CastPoolStat; values: number[] }[]; turns?: number; perChampionHit?: { stat: CastPoolStat; pct: number }; target?: 'self' | 'ally'; requiresHit?: boolean; requiresChampionHit?: boolean; alliesToo?: boolean; allAllies?: boolean; flat?: number[]; flatByLevel?: boolean; delayTurns?: number; lowHpBonus?: { belowHpPct: number; multiplier: number }; requiresSelfInArea?: boolean; requiresSelfStatus?: boolean };
   /** Escudo automático (inicio del combate; al romperse CD por rango con decimales; vuelve solo). */
   innateShield?: { flat?: number[]; ratios: { stat: CastPoolStat; values: number[] }[]; cooldown: number[]; reducePerHit?: number };
   /** Se puede volver a lanzar times veces gratis durante turns turnos tras usarla. */
-  recast?: { times: number; turns: number };
+  recast?: { times: number; turns: number; whileEffect?: boolean };
   /** Al usarla, estado en sí mismo (bloquea la habilidad mientras dura). stat/amount/pct: bonus mientras dura. */
-  selfStatus?: { name: string; turns: number; value?: number; stat?: SheetStatKey; amount?: number; pct?: number; pctValues?: number[]; amountValues?: number[]; fixedAttacks?: number; requiresChampionHit?: boolean; blocksRecast?: boolean; stats?: { stat: string; amount?: number; pct?: number; amountValues?: number[]; pctValues?: number[]; ratios?: { stat: CastPoolStat; values: number[] }[] }[]; damageReductionValues?: number[]; cancelable?: boolean; blocksAbility?: boolean; requiresSelfInArea?: boolean; durationByStacks?: { from: string; thresholds: { stacks: number; turns: number }[] } };
+  selfStatus?: { name: string; turns: number; value?: number; stat?: SheetStatKey; amount?: number; pct?: number; pctValues?: number[]; amountValues?: number[]; fixedAttacks?: number; requiresChampionHit?: boolean; blocksRecast?: boolean; stats?: { stat: string; amount?: number; pct?: number; amountValues?: number[]; pctValues?: number[]; ratios?: { stat: CastPoolStat; values: number[] }[]; lol?: boolean }[]; damageReductionValues?: number[]; cancelable?: boolean; blocksAbility?: boolean; requiresSelfInArea?: boolean; durationByStacks?: { from: string; thresholds: { stacks: number; turns: number }[] }; lol?: boolean };
   selfStatuses?: ChampionAbilityMechanics['selfStatus'][];
   selfInArea?: boolean;
   selfInAreaLabel?: string;
   trailTurns?: number;
   centerEffect?: { name: string; duration: number; values?: number[] };
-  empoweredAa?: { healHpPct?: number[]; hpSource?: 'max' | 'current' | 'missing' | 'bonus'; heal?: NonNullable<NonNullable<ChampionAbilityMechanics['stacks']>['onMaxHeal']>; healPerTarget?: boolean; applyAbilityDamage?: boolean; cooldown: number[]; byLevel?: boolean; reduceOnAbility?: number; reduceOnStruck?: number; reduceOnAuto?: number; skipAboveHpPct?: number };
+  hitStatus?: { name: string; turns: number; championsLargeMonstersOnly?: boolean };
+  empoweredAa?: { healHpPct?: number[]; hpSource?: 'max' | 'current' | 'missing' | 'bonus'; heal?: NonNullable<NonNullable<ChampionAbilityMechanics['stacks']>['onMaxHeal']>; healPerTarget?: boolean; applyAbilityDamage?: boolean; cooldown: number[]; byLevel?: boolean; reduceOnAbility?: number; reduceOnStruck?: number; reduceOnAuto?: number; skipAboveHpPct?: number; aaDamagePct?: number[]; critPct?: number; nearbyTargets?: boolean; nearbyRadius?: number; reduceOnAutoChampionsMonsters?: boolean };
   trap?: { turns: number; name?: string; applyOnPlace?: boolean; eruptEffect?: { name: string; values?: number[]; duration?: number[] }[]; eruptEffectName?: string; eruptEffectDuration?: number; damageOnDetonate?: boolean };
   reduceEmpoweredAaOnHit?: number;
   costHpMaxPct?: number;
@@ -889,9 +925,10 @@ export type ChampionAbilityMechanics = {
   noAction?: boolean;
   /** Efecto enemigo a todos los enemigos del combate. */
   allEnemies?: boolean;
+  allEnemiesChampions?: boolean;
   /** Estado propio rompible (escudo de hechizos): al romperse, bonus por tenerla aprendida × learnedMultiplier durante breakTurns. */
   spellShield?: { status: string; turns: number; breakTurns: number; learnedMultiplier: number };
-  isolated?: { multiplier?: number; slowPct?: number };
+  isolated?: { multiplier?: number; slowPct?: number; singleTarget?: boolean };
   evolutions?: { slots: number[] };
   evolve?: {
     name: string;
@@ -900,15 +937,16 @@ export type ChampionAbilityMechanics = {
     effectName?: string;
     effectDuration?: number;
     effectTarget?: 'self' | 'enemy';
-    recast?: { times: number; turns: number };
-    isolated?: { multiplier?: number; slowPct?: number };
+    recast?: { times: number; turns: number; whileEffect?: boolean };
+    isolated?: { multiplier?: number; slowPct?: number; singleTarget?: boolean };
     selfStatus?: ChampionAbilityMechanics['selfStatus'];
-    recastOnTakedown?: { times: number; turns: number; max?: number; champion?: boolean };
+    recastOnTakedown?: { times: number; turns: number; max?: number; champion?: boolean; manaOnly?: boolean };
     armArmedAa?: boolean;
   };
-  recastOnTakedown?: { times: number; turns: number; max?: number; champion?: boolean };
-  armedAa?: { type?: string; ad?: number[]; ap?: number[]; adSource?: 'total' | 'bonus'; apSource?: 'total' | 'bonus'; effectName?: string; effectDuration?: number; effect?: { name: string; values?: number[]; duration?: number[] }[]; endsSelfStatus?: boolean; turns?: number; hp?: number[]; hpSource?: 'max' | 'current' | 'missing' | 'bonus'; apPer100?: number; explodeFromLevel?: number; charges?: number; effectOnLastCharge?: boolean; applyDamageOnUse?: boolean };
+  recastOnTakedown?: { times: number; turns: number; max?: number; champion?: boolean; manaOnly?: boolean };
+  armedAa?: { type?: string; ad?: number[]; ap?: number[]; adSource?: 'total' | 'bonus'; apSource?: 'total' | 'bonus'; effectName?: string; effectDuration?: number; effect?: { name: string; values?: number[]; duration?: number[] }[]; endsSelfStatus?: boolean; turns?: number; hp?: number[]; hpSource?: 'max' | 'current' | 'missing' | 'bonus'; apPer100?: number; explodeFromLevel?: number; charges?: number; effectOnLastCharge?: boolean; applyDamageOnUse?: boolean; flat?: number[]; refreshOnHit?: boolean; critScales?: boolean; lockWhileArmed?: boolean };
   armArmedAa?: boolean;
+  markOnHit?: { name: string; turns: number; exclusive?: boolean; onAa?: boolean; fromAbilities?: string[]; whenLearned?: { ability: string; onAa?: boolean; fromAbilities?: string[] } };
   resistShred?: { pct: number[]; turns: number; armor?: boolean; mr?: boolean };
   aaOnHit?: { hp?: number[]; hpSource?: 'max' | 'current' | 'missing' | 'bonus'; apPer100?: number; type?: string; ad?: number[]; adSource?: 'total' | 'bonus'; ap?: number[]; apSource?: 'total' | 'bonus'; always?: boolean; perTargetStacks?: { turns: number; max?: number } };
   costStacks?: { amount: number; turns: number; max: number };
@@ -917,7 +955,7 @@ export type ChampionAbilityMechanics = {
   onAbilityUse?: { turns: number; attackSpeed?: number[] };
   resetSectorShots?: { from: string; count: number; requiresChampionHit?: boolean };
   strikes?: { count: number[]; perBonusAtkSpe?: number };
-  mark?: { turns: number; detonateOn?: 'aa' | 'ability' | 'both'; damageOnDetonate?: boolean; refundMana?: { flat?: number[]; refundCost?: boolean }; applyOnAbilityHit?: boolean; name?: string };
+  mark?: { turns: number; detonateOn?: 'aa' | 'ability' | 'both'; damageOnDetonate?: boolean; refundMana?: { flat?: number[]; refundCost?: boolean }; applyOnAbilityHit?: boolean; name?: string; detonateNeedsDamage?: boolean; areaPick?: boolean };
   cleanse?: boolean;
   returnStrike?: { type: 'true' | 'magic' | 'physical' };
   takedownHeal?: { flat?: number[]; flatByLevel?: boolean; ratios?: { stat: CastPoolStat; values: number[] }[]; champion?: boolean };
@@ -998,6 +1036,12 @@ export function parseAbilityMechanics(value: unknown): ChampionAbilityMechanics 
     if (stacks.onAbilityHit === true) out.stacks.onAbilityHit = true;
     if (stacks.onChampionTakedown === true) out.stacks.onChampionTakedown = true;
     if (stacks.onNonChampionKill === true) out.stacks.onNonChampionKill = true;
+    if (Array.isArray(stacks.fromAbilities)) {
+      const names = stacks.fromAbilities.filter((name: unknown): name is string => typeof name === 'string' && !!name.trim()).map((name: string) => name.trim().slice(0, 80)).slice(0, 6);
+      if (names.length) out.stacks.fromAbilities = names;
+    }
+    if (stacks.fromAbilitiesStacks !== undefined && stacks.fromAbilitiesStacks !== null) out.stacks.fromAbilitiesStacks = mechanicsInt(stacks.fromAbilitiesStacks, 'mechanics.stacks.fromAbilitiesStacks', 1, 9);
+    if (stacks.onMaxAdFromHit === true) out.stacks.onMaxAdFromHit = true;
     if (typeof stacks.stat === 'string' && stacks.stat.trim()) out.stacks.stat = stacks.stat.trim().slice(0, 40);
     const perStack = mechanicsList(stacks.perStack, 'mechanics.stacks.perStack', 0, 100, false);
     if (perStack) out.stacks.perStack = perStack;
@@ -1172,6 +1216,21 @@ export function parseAbilityMechanics(value: unknown): ChampionAbilityMechanics 
     });
     if (list.length) out.learnedStats = list;
   }
+  const cond = mechanicsObject(source.conditionalStats, 'mechanics.conditionalStats');
+  if (cond) {
+    const label = typeof cond.label === 'string' ? cond.label.trim().slice(0, 80) : '';
+    if (!label) throw new HttpError(400, 'mechanics.conditionalStats.label: pon el texto de la condición');
+    if (!Array.isArray(cond.stats) || !cond.stats.length || cond.stats.length > 6) throw new HttpError(400, 'mechanics.conditionalStats.stats tiene que ser una lista de 1 a 6');
+    const stats = (cond.stats as unknown[]).map((entry, index) => {
+      const item = mechanicsObject(entry, `mechanics.conditionalStats.stats[${index}]`) ?? {};
+      if (typeof item.stat !== 'string' || !(SHEET_STAT_KEYS as readonly string[]).includes(item.stat)) throw new HttpError(400, `mechanics.conditionalStats.stats[${index}].stat no es una stat de la ficha`);
+      const values = mechanicsList(item.values, `mechanics.conditionalStats.stats[${index}].values`, -999, 999, false);
+      if (!values) throw new HttpError(400, `mechanics.conditionalStats.stats[${index}].values: pon el valor por rango`);
+      return { stat: item.stat as SheetStatKey, values, ...(item.pct === true ? { pct: true } : {}) };
+    });
+    out.conditionalStats = { label, stats };
+    if (typeof cond.hintStatus === 'string' && cond.hintStatus.trim()) out.conditionalStats.hintStatus = cond.hintStatus.trim().slice(0, 60);
+  }
   const pool = mechanicsObject(source.castPool, 'mechanics.castPool');
   if (pool) {
     if (pool.kind !== 'shield' && pool.kind !== 'heal') throw new HttpError(400, 'mechanics.castPool.kind tiene que ser shield o heal');
@@ -1212,7 +1271,10 @@ export function parseAbilityMechanics(value: unknown): ChampionAbilityMechanics 
     if (ratios.length || castPool.perChampionHit || castPool.flat) out.castPool = castPool;
   }
   const recast = mechanicsObject(source.recast, 'mechanics.recast');
-  if (recast) out.recast = { times: mechanicsInt(recast.times, 'mechanics.recast.times', 1, 9), turns: mechanicsInt(recast.turns, 'mechanics.recast.turns', 0, 99) };
+  if (recast) {
+    out.recast = { times: mechanicsInt(recast.times, 'mechanics.recast.times', 1, 9), turns: mechanicsInt(recast.turns, 'mechanics.recast.turns', 0, 99) };
+    if (recast.whileEffect === true) out.recast.whileEffect = true;
+  }
   const selfStatus = mechanicsObject(source.selfStatus, 'mechanics.selfStatus');
   if (selfStatus) {
     const name = typeof selfStatus.name === 'string' ? selfStatus.name.trim().slice(0, 60) : '';
@@ -1241,6 +1303,7 @@ export function parseAbilityMechanics(value: unknown): ChampionAbilityMechanics 
     const amountValues = mechanicsList(selfStatus.amountValues, 'mechanics.selfStatus.amountValues', -999, 999, false);
     if (amountValues) out.selfStatus.amountValues = amountValues;
     if (selfStatus.requiresChampionHit === true) out.selfStatus.requiresChampionHit = true;
+    if (selfStatus.lol === true && (out.selfStatus.stat === 'ad' || out.selfStatus.stat === 'ap')) out.selfStatus.lol = true;
     if (selfStatus.blocksRecast === true) out.selfStatus.blocksRecast = true;
     if (selfStatus.cancelable === true) out.selfStatus.cancelable = true;
     if (selfStatus.blocksAbility === false) out.selfStatus.blocksAbility = false;
@@ -1313,6 +1376,7 @@ export function parseAbilityMechanics(value: unknown): ChampionAbilityMechanics 
       if (row.requiresSelfInArea === true) parsed.requiresSelfInArea = true;
       if (row.requiresChampionHit === true) parsed.requiresChampionHit = true;
       if (row.blocksRecast === true) parsed.blocksRecast = true;
+      if (row.lol === true && (parsed.stat === 'ad' || parsed.stat === 'ap')) parsed.lol = true;
       if (Array.isArray(row.stats)) {
         parsed.stats = row.stats.slice(0, 8).map((item: unknown, statIndex: number) => {
           const statRow = mechanicsObject(item, `mechanics.selfStatuses[${index}].stats[${statIndex}]`) ?? {};
@@ -1325,6 +1389,7 @@ export function parseAbilityMechanics(value: unknown): ChampionAbilityMechanics 
           if (av) one.amountValues = av;
           const pv = mechanicsList(statRow.pctValues, `mechanics.selfStatuses[${index}].stats[${statIndex}].pctValues`, -999, 999, false);
           if (pv) one.pctValues = pv;
+          if (statRow.lol === true) one.lol = true;
           return one;
         });
       }
@@ -1343,6 +1408,13 @@ export function parseAbilityMechanics(value: unknown): ChampionAbilityMechanics 
     if (values) parsed.values = values;
     out.centerEffect = parsed;
   }
+  const hitStatus = mechanicsObject(source.hitStatus, 'mechanics.hitStatus');
+  if (hitStatus) {
+    const name = typeof hitStatus.name === 'string' ? hitStatus.name.trim().slice(0, 80) : '';
+    if (!name) throw new HttpError(400, 'mechanics.hitStatus.name: pon el nombre del estado');
+    out.hitStatus = { name, turns: mechanicsInt(hitStatus.turns, 'mechanics.hitStatus.turns', 1, 99) };
+    if (hitStatus.championsLargeMonstersOnly === true) out.hitStatus.championsLargeMonstersOnly = true;
+  }
   const empoweredAa = mechanicsObject(source.empoweredAa, 'mechanics.empoweredAa');
   if (empoweredAa) {
     const healHpPct = mechanicsList(empoweredAa.healHpPct, 'mechanics.empoweredAa.healHpPct', 0, 100, false);
@@ -1354,16 +1426,16 @@ export function parseAbilityMechanics(value: unknown): ChampionAbilityMechanics 
       const heal: NonNullable<NonNullable<ChampionAbilityMechanics['empoweredAa']>['heal']> = {};
       const parseRatios = (raw: unknown, field: string) => {
         if (!Array.isArray(raw) || !raw.length) return undefined;
-        const list: { stat: CastPoolStat; values: number[] }[] = [];
+        const list: { stat: CastPoolStat | 'apLol' | 'adLol'; values: number[] }[] = [];
         for (const [index, entry] of raw.entries()) {
           const item = mechanicsObject(entry, `${field}[${index}]`);
           if (!item) continue;
           let stat = typeof item.stat === 'string' ? item.stat.trim() : '';
           if (stat === 'maxHp') stat = 'hp';
-          if (stat !== 'hp' && stat !== 'ap' && stat !== 'ad' && stat !== 'bonusAd' && stat !== 'bonusAp') throw new HttpError(400, `${field}[${index}].stat no válido`);
+          if (stat !== 'hp' && stat !== 'ap' && stat !== 'ad' && stat !== 'bonusAd' && stat !== 'bonusAp' && stat !== 'apLol' && stat !== 'adLol') throw new HttpError(400, `${field}[${index}].stat no válido`);
           const values = mechanicsList(item.values, `${field}[${index}].values`, 0, 1000, false);
           if (!values) throw new HttpError(400, `${field}[${index}].values: pon los valores por rango`);
-          list.push({ stat: stat as CastPoolStat, values });
+          list.push({ stat: stat as CastPoolStat | 'apLol' | 'adLol', values });
         }
         return list.length ? list : undefined;
       };
@@ -1372,11 +1444,13 @@ export function parseAbilityMechanics(value: unknown): ChampionAbilityMechanics 
       const healFlat = mechanicsList(row.flat, 'mechanics.empoweredAa.heal.flat', 0, 100000, false);
       if (healFlat) heal.flat = healFlat;
       if (row.flatByLevel === true) heal.flatByLevel = true;
+      if (row.lolScale === true) heal.lolScale = true;
       return (heal.selfRatios || heal.flat) ? heal : undefined;
     };
     const heal = parseEmpHeal(empoweredAa.heal);
-    if (!healHpPct && !heal && empoweredAa.applyAbilityDamage !== true) {
-      throw new HttpError(400, 'mechanics.empoweredAa: pon cura (heal / healHpPct) o applyAbilityDamage');
+    const aaDamagePct = mechanicsList(empoweredAa.aaDamagePct, 'mechanics.empoweredAa.aaDamagePct', 1, 1000, false);
+    if (!healHpPct && !heal && empoweredAa.applyAbilityDamage !== true && !aaDamagePct) {
+      throw new HttpError(400, 'mechanics.empoweredAa: pon cura (heal / healHpPct), applyAbilityDamage o aaDamagePct');
     }
     out.empoweredAa = { cooldown };
     if (healHpPct) out.empoweredAa.healHpPct = healHpPct;
@@ -1394,6 +1468,11 @@ export function parseAbilityMechanics(value: unknown): ChampionAbilityMechanics 
     if (empoweredAa.reduceOnStruck !== undefined && empoweredAa.reduceOnStruck !== null) out.empoweredAa.reduceOnStruck = mechanicsInt(empoweredAa.reduceOnStruck, 'mechanics.empoweredAa.reduceOnStruck', 1, 99);
     if (empoweredAa.reduceOnAuto !== undefined && empoweredAa.reduceOnAuto !== null) out.empoweredAa.reduceOnAuto = mechanicsInt(empoweredAa.reduceOnAuto, 'mechanics.empoweredAa.reduceOnAuto', 1, 99);
     if (empoweredAa.skipAboveHpPct !== undefined && empoweredAa.skipAboveHpPct !== null) out.empoweredAa.skipAboveHpPct = mechanicsInt(empoweredAa.skipAboveHpPct, 'mechanics.empoweredAa.skipAboveHpPct', 1, 100);
+    if (aaDamagePct) out.empoweredAa.aaDamagePct = aaDamagePct;
+    if (empoweredAa.critPct !== undefined && empoweredAa.critPct !== null) out.empoweredAa.critPct = mechanicsInt(empoweredAa.critPct, 'mechanics.empoweredAa.critPct', 1, 1000);
+    if (empoweredAa.nearbyTargets === true) out.empoweredAa.nearbyTargets = true;
+    if (empoweredAa.nearbyRadius !== undefined && empoweredAa.nearbyRadius !== null) out.empoweredAa.nearbyRadius = mechanicsInt(empoweredAa.nearbyRadius, 'mechanics.empoweredAa.nearbyRadius', 1, 20);
+    if (empoweredAa.reduceOnAutoChampionsMonsters === true) out.empoweredAa.reduceOnAutoChampionsMonsters = true;
   }
   const trap = mechanicsObject(source.trap, 'mechanics.trap');
   if (trap) {
@@ -1436,6 +1515,24 @@ export function parseAbilityMechanics(value: unknown): ChampionAbilityMechanics 
     out.costHpMinCurrentPct = mechanicsInt(source.costHpMinCurrentPct, 'mechanics.costHpMinCurrentPct', 1, 100);
   }
   if (source.noAction === true) out.noAction = true;
+  if (source.noEffectLock === true) out.noEffectLock = true;
+  const aura = mechanicsObject(source.allyAura, 'mechanics.allyAura');
+  if (aura) {
+    const name = typeof aura.name === 'string' ? aura.name.trim().slice(0, 80) : '';
+    if (!name) throw new HttpError(400, 'mechanics.allyAura.name: pon el nombre');
+    if (!Array.isArray(aura.stats) || !aura.stats.length || aura.stats.length > 4) throw new HttpError(400, 'mechanics.allyAura.stats tiene que ser una lista de 1 a 4');
+    const stats = aura.stats.map((entry, index) => {
+      const item = mechanicsObject(entry, `mechanics.allyAura.stats[${index}]`) ?? {};
+      if (typeof item.stat !== 'string' || !(SHEET_STAT_KEYS as readonly string[]).includes(item.stat)) throw new HttpError(400, `mechanics.allyAura.stats[${index}].stat no es una stat de la ficha`);
+      const values = mechanicsList(item.values, `mechanics.allyAura.stats[${index}].values`, -999, 999, false);
+      if (!values) throw new HttpError(400, `mechanics.allyAura.stats[${index}].values: pon el valor por rango`);
+      return { stat: item.stat as SheetStatKey, values };
+    });
+    const parsedAura: NonNullable<ChampionAbilityMechanics['allyAura']> = { name, turns: mechanicsInt(aura.turns, 'mechanics.allyAura.turns', 1, 99), stats };
+    if (aura.range !== undefined && aura.range !== null) parsedAura.range = mechanicsInt(aura.range, 'mechanics.allyAura.range', 1, 99);
+    if (aura.selfToo === false) parsedAura.selfToo = false;
+    out.allyAura = parsedAura;
+  }
   const innate = mechanicsObject(source.innateShield, 'mechanics.innateShield');
   if (innate) {
     if (!Array.isArray(innate.ratios) || innate.ratios.length > 4) throw new HttpError(400, 'mechanics.innateShield.ratios: lista de hasta 4');
@@ -1459,6 +1556,7 @@ export function parseAbilityMechanics(value: unknown): ChampionAbilityMechanics 
     out.innateShield = shield;
   }
   if (source.allEnemies === true) out.allEnemies = true;
+  if (source.allEnemies === true && source.allEnemiesChampions === true) out.allEnemiesChampions = true;
   const shield = mechanicsObject(source.spellShield, 'mechanics.spellShield');
   if (shield) {
     const status = typeof shield.status === 'string' ? shield.status.trim().slice(0, 60) : '';
@@ -1476,6 +1574,7 @@ export function parseAbilityMechanics(value: unknown): ChampionAbilityMechanics 
       iso.multiplier = multiplier;
     }
     if (isolated.slowPct !== undefined && isolated.slowPct !== null) iso.slowPct = mechanicsInt(isolated.slowPct, 'mechanics.isolated.slowPct', 1, 99);
+    if (isolated.singleTarget === true) iso.singleTarget = true;
     if (iso.multiplier != null || iso.slowPct != null) out.isolated = iso;
   }
   const evolutions = mechanicsObject(source.evolutions, 'mechanics.evolutions');
@@ -1484,17 +1583,19 @@ export function parseAbilityMechanics(value: unknown): ChampionAbilityMechanics 
     if (!slots) throw new HttpError(400, 'mechanics.evolutions.slots: pon los huecos por rango');
     out.evolutions = { slots };
   }
-  const parseRecast = (value: unknown, field: string): { times: number; turns: number; max?: number; champion?: boolean } => {
+  const parseRecast = (value: unknown, field: string): { times: number; turns: number; max?: number; champion?: boolean; manaOnly?: boolean } => {
     const rec = mechanicsObject(value, field) ?? {};
-    const parsed: { times: number; turns: number; max?: number; champion?: boolean } = { times: mechanicsInt(rec.times, `${field}.times`, 1, 9), turns: mechanicsInt(rec.turns, `${field}.turns`, 0, 99) };
+    const parsed: { times: number; turns: number; max?: number; champion?: boolean; manaOnly?: boolean } = { times: mechanicsInt(rec.times, `${field}.times`, 1, 9), turns: mechanicsInt(rec.turns, `${field}.turns`, 0, 99) };
     if (rec.max !== undefined && rec.max !== null) parsed.max = mechanicsInt(rec.max, `${field}.max`, 1, 99);
     if (rec.champion === true) parsed.champion = true;
+    if (rec.manaOnly === true) parsed.manaOnly = true;
     return parsed;
   };
-  const parseIsolated = (value: unknown, field: string): { multiplier?: number; slowPct?: number } | undefined => {
+  const parseIsolated = (value: unknown, field: string): { multiplier?: number; slowPct?: number; singleTarget?: boolean } | undefined => {
     const src = mechanicsObject(value, field);
     if (!src) return undefined;
-    const iso: { multiplier?: number; slowPct?: number } = {};
+    const iso: { multiplier?: number; slowPct?: number; singleTarget?: boolean } = {};
+    if (src.singleTarget === true) iso.singleTarget = true;
     if (src.multiplier !== undefined && src.multiplier !== null) {
       const multiplier = typeof src.multiplier === 'number' ? src.multiplier : Number(src.multiplier);
       if (!Number.isFinite(multiplier) || multiplier <= 0 || multiplier > 10) throw new HttpError(400, `${field}.multiplier tiene que ser un número entre 0 (no incluido) y 10`);
@@ -1568,10 +1669,33 @@ export function parseAbilityMechanics(value: unknown): ChampionAbilityMechanics 
     if (armed.charges !== undefined && armed.charges !== null) aa.charges = mechanicsInt(armed.charges, 'mechanics.armedAa.charges', 1, 9);
     if (armed.effectOnLastCharge === false) aa.effectOnLastCharge = false;
     if (armed.applyDamageOnUse === true) aa.applyDamageOnUse = true;
-    if (!aa.ad && !aa.ap && !aa.effectName && !aa.effect && !aa.hp && aa.apPer100 == null) throw new HttpError(400, 'mechanics.armedAa: pon daño, % de vida o un estado');
+    const armedFlat = mechanicsList(armed.flat, 'mechanics.armedAa.flat', 0, 1000, false);
+    if (armedFlat) aa.flat = armedFlat;
+    if (armed.refreshOnHit === true) aa.refreshOnHit = true;
+    if (armed.critScales === true) aa.critScales = true;
+    if (armed.lockWhileArmed === true) aa.lockWhileArmed = true;
+    if (!aa.ad && !aa.ap && !aa.flat && !aa.effectName && !aa.effect && !aa.hp && aa.apPer100 == null) throw new HttpError(400, 'mechanics.armedAa: pon daño, % de vida o un estado');
     out.armedAa = aa;
   }
   if (source.armArmedAa === true) out.armArmedAa = true;
+  const markOnHit = mechanicsObject(source.markOnHit, 'mechanics.markOnHit');
+  if (markOnHit) {
+    const nameList = (value: unknown): string[] => (Array.isArray(value) ? value.filter((name: unknown): name is string => typeof name === 'string' && !!name.trim()).map(name => name.trim().slice(0, 80)).slice(0, 6) : []);
+    if (typeof markOnHit.name !== 'string' || !markOnHit.name.trim()) throw new HttpError(400, 'mechanics.markOnHit.name es obligatorio');
+    const mark: NonNullable<ChampionAbilityMechanics['markOnHit']> = { name: markOnHit.name.trim().slice(0, 80), turns: mechanicsInt(markOnHit.turns, 'mechanics.markOnHit.turns', 1, 99) };
+    if (markOnHit.exclusive === true) mark.exclusive = true;
+    if (markOnHit.onAa === true) mark.onAa = true;
+    const from = nameList(markOnHit.fromAbilities);
+    if (from.length) mark.fromAbilities = from;
+    const learned = mechanicsObject(markOnHit.whenLearned, 'mechanics.markOnHit.whenLearned');
+    if (learned && typeof learned.ability === 'string' && learned.ability.trim()) {
+      mark.whenLearned = { ability: learned.ability.trim().slice(0, 80) };
+      if (learned.onAa === true) mark.whenLearned.onAa = true;
+      const lf = nameList(learned.fromAbilities);
+      if (lf.length) mark.whenLearned.fromAbilities = lf;
+    }
+    out.markOnHit = mark;
+  }
   const shred = mechanicsObject(source.resistShred, 'mechanics.resistShred');
   if (shred) {
     const pct = mechanicsList(shred.pct, 'mechanics.resistShred.pct', 1, 99, false);
@@ -1673,6 +1797,8 @@ export function parseAbilityMechanics(value: unknown): ChampionAbilityMechanics 
     if (mark.damageOnDetonate === false) parsed.damageOnDetonate = false;
     else parsed.damageOnDetonate = true;
     if (mark.applyOnAbilityHit === true) parsed.applyOnAbilityHit = true;
+    if (mark.detonateNeedsDamage === true) parsed.detonateNeedsDamage = true;
+    if (mark.areaPick === true) parsed.areaPick = true;
     if (typeof mark.name === 'string' && mark.name.trim()) parsed.name = mark.name.trim().slice(0, 80);
     const refund = mechanicsObject(mark.refundMana, 'mechanics.mark.refundMana');
     if (refund) {
@@ -2003,6 +2129,7 @@ export type ChampionAbilityVariant = {
   effectTarget?: 'self' | 'enemy';
   effectName?: string;
   area?: AreaPattern;
+  noEffect?: boolean;
   requiresStacks?: { from: string; count: number; consume?: boolean };
   stackDamage?: { from: string; pct: number[]; type?: 'physical' | 'magic' | 'true'; byLevel?: boolean };
 };
@@ -2038,6 +2165,8 @@ function parseDamage(value: unknown): ChampionAbilityDamage | undefined {
   const damage: ChampionAbilityDamage = {};
   const type = optionalText(source.type, 'damage.type');
   if (type) damage.type = type;
+  const flat = finiteNumbers(source.flat, 'damage.flat');
+  if (flat) damage.flat = flat;
   const ap = finiteNumbers(source.ap, 'damage.ap');
   const ad = finiteNumbers(source.ad, 'damage.ad');
   if (ap) damage.ap = ap;
@@ -2079,8 +2208,13 @@ function parseDamage(value: unknown): ChampionAbilityDamage | undefined {
     }
     damage.hpAdPer = step;
   }
-  if (source.hpAdSource === 'total' || source.hpAdSource === 'bonus' || source.hpAdSource === 'itemDiceAvg') {
+  if (source.hpAdSource === 'total' || source.hpAdSource === 'bonus' || source.hpAdSource === 'itemDiceAvg' || source.hpAdSource === 'hitRoll') {
     damage.hpAdSource = source.hpAdSource;
+  }
+  if (source.hpCapNonChampion !== undefined && source.hpCapNonChampion !== null) {
+    const cap = source.hpCapNonChampion;
+    if (typeof cap !== 'number' || !Number.isFinite(cap) || cap <= 0 || cap > 100000) throw new HttpError(400, 'damage.hpCapNonChampion tiene que ser un número mayor que 0');
+    damage.hpCapNonChampion = cap;
   }
   return Object.keys(damage).length ? damage : undefined;
 }
@@ -2252,6 +2386,7 @@ function parseAbilityVariants(value: unknown): ChampionAbilityVariant[] | undefi
     }
     const effectName = boundedText(source.effectName, `${label}.effectName`, 80);
     if (effectName) variant.effectName = effectName;
+    if (source.noEffect === true) variant.noEffect = true;
     if ('area' in source) {
       const area = parseAreaPattern(source.area, `${label}.area`);
       if (area) variant.area = area;
@@ -2444,6 +2579,14 @@ function combatBonusStat(value: unknown, field: string): SheetStatKey | (typeof 
 function bonusAmount(value: unknown, field: string): number {
   if (typeof value !== 'number' || !Number.isFinite(value) || value === 0 || Math.abs(value) > 9999) {
     throw new HttpError(400, `${field} tiene que ser un número distinto de 0 (máx. 9999)`);
+  }
+  return value;
+}
+
+/** Marcadores (buff, cooldown, stacks, armed): 0 vale (marcas ocultas como «en combate con campeones» o «golpeado por»). */
+function markerAmount(value: unknown, field: string): number {
+  if (typeof value !== 'number' || !Number.isFinite(value) || Math.abs(value) > 9999) {
+    throw new HttpError(400, `${field} tiene que ser un número (máx. 9999)`);
   }
   return value;
 }
@@ -3604,6 +3747,8 @@ export type CombatParticipant = {
   vigor?: number;
   /** Movimiento gastado este turno (casillas); se borra al empezar su turno. */
   movementUsed?: number;
+  /** Ruptura de control: historial 1/0 de sus últimos turnos (inmovilizado al empezar). */
+  comboBreaker?: { history?: number[] };
 };
 
 export type CombatState = {
@@ -3644,11 +3789,16 @@ const COMBAT_TRAIT_SOURCE_PREFIXES = [
   'survive:',
   'flatdr:',
   'enemy-ult:',
+  'combo:',
 ] as const;
+
+/** Cualquier otro origen del cliente: <prefijo>:<resto> (mark:, guard:, maxst:…), prefijo en minúsculas. */
+const GENERIC_EFFECT_SOURCE = /^[a-z][a-zA-Z0-9-]{0,30}:.+$/;
 
 /**
  * item:<nombre> y ability:<nombre> no admiten '.' (protección Mongo).
  * Los rasgos sí, porque el id del participante es un UUID (p. ej. entry:<uuid>:<nombre>).
+ * Resto de orígenes (marcas de habilidad mark:<id>:<nombre>, guard:<id>…): <prefijo>:<resto>, como el PATCH de bonus.
  */
 function isAllowedEffectSource(key: string): boolean {
   if (!key || key.includes('$')) return false;
@@ -3656,7 +3806,7 @@ function isAllowedEffectSource(key: string): boolean {
     const prefix = key.startsWith('item:') ? 'item:' : 'ability:';
     return key.length > prefix.length && !key.includes('.');
   }
-  return COMBAT_TRAIT_SOURCE_PREFIXES.some(prefix => key.startsWith(prefix) && key.length > prefix.length);
+  return COMBAT_TRAIT_SOURCE_PREFIXES.some(prefix => key.startsWith(prefix) && key.length > prefix.length) || GENERIC_EFFECT_SOURCE.test(key);
 }
 
 function combatEffect(value: unknown): CombatEffect {
@@ -3686,7 +3836,7 @@ function combatEffect(value: unknown): CombatEffect {
   if ('source' in source && source.source !== undefined && source.source !== null) {
     const key = boundedText(source.source, 'effect.source', 120);
     if (!isAllowedEffectSource(key)) {
-      throw new HttpError(400, 'effect.source tiene que ser item:<nombre>, ability:<nombre> o un rasgo de combate (capture:, taunt:, entry:, tough:, start:…)');
+      throw new HttpError(400, `effect.source no válido («${key.slice(0, 60)}»): tiene que ser <origen>:<nombre> (item:, ability:, mark:…)`);
     }
     effect.source = key;
   }
@@ -3727,7 +3877,11 @@ export function combatBonuses(value: unknown): CombatBonus[] {
     if (!id) throw new HttpError(400, `bonuses[${index}].id es obligatorio`);
     const stat = combatBonusStat(source.stat, `bonuses[${index}].stat`);
     // Cargas de combate: amount = cargas que quedan (0 vale), maxStacks = máximo.
-    const amount = stat === 'charges' ? nonNegInt(source.amount, `bonuses[${index}].amount`) : bonusAmount(source.amount, `bonuses[${index}].amount`);
+    const amount = stat === 'charges'
+      ? nonNegInt(source.amount, `bonuses[${index}].amount`)
+      : (COMBAT_MARKER_STATS as readonly string[]).includes(stat)
+        ? markerAmount(source.amount, `bonuses[${index}].amount`)
+        : bonusAmount(source.amount, `bonuses[${index}].amount`);
     if (stat === 'charges' && amount > 99) throw new HttpError(400, `bonuses[${index}].amount: máx. 99 cargas`);
     const bonus: CombatBonus = { id, stat, amount };
     if (stat === 'charges') {
@@ -3850,6 +4004,19 @@ function combatParticipant(value: unknown): CombatParticipant {
     const used = nonNegInt(source.movementUsed, 'movementUsed');
     if (used > 999) throw new HttpError(400, 'movementUsed no puede superar 999');
     if (used > 0) participant.movementUsed = used;
+  }
+  if (source.comboBreaker !== undefined && source.comboBreaker !== null) {
+    const raw = source.comboBreaker;
+    if (typeof raw !== 'object' || Array.isArray(raw)) throw new HttpError(400, 'comboBreaker tiene que ser un objeto');
+    const cb = raw as Record<string, unknown>;
+    const out: { history?: number[] } = {};
+    if (cb.history !== undefined && cb.history !== null) {
+      if (!Array.isArray(cb.history) || cb.history.length > 10 || cb.history.some(v => v !== 0 && v !== 1)) {
+        throw new HttpError(400, 'comboBreaker.history tiene que ser una lista de 0/1 (máx. 10)');
+      }
+      out.history = cb.history as number[];
+    }
+    if (out.history) participant.comboBreaker = out;
   }
   if (source.cooldowns !== undefined && source.cooldowns !== null) {
     participant.cooldowns = parsePlayerCooldowns(source.cooldowns);

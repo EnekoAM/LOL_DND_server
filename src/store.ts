@@ -44,7 +44,8 @@ async function one(col: Collection, filter: Filter<Document>, missing: string) {
 
 export async function getChampions(champion?: string) {
   const col = await collection('champions');
-  if (!champion) return col.find({}, PUBLIC).sort({ order: 1 }).toArray();
+  // Sin campo order en la BD: alfabético por nombre (es, sin mayúsculas / tildes / apóstrofos ni espacios).
+  if (!champion) return col.find({}, { ...PUBLIC, collation: { locale: 'es', strength: 1, alternate: 'shifted' } }).sort({ champion: 1 }).toArray();
   return one(col, { champion }, `No existe el campeón ${champion}`);
 }
 
