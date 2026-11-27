@@ -962,6 +962,8 @@ export type ChampionAbilityMechanics = {
   levelThresholds?: { level: number; name?: string; rangeBonus?: number; aaWave?: { type?: 'magic' | 'true' | 'physical'; ad?: number[]; adSource?: 'total' | 'bonus'; ap?: number[]; apSource?: 'total' | 'bonus'; requiresMaxStacks?: boolean }; permanentMaxStacks?: boolean }[];
   protect?: { name?: string; turns: number; damageReductionPct: number[]; target?: 'self' | 'ally' | 'allyOrSelf' };
   combatTraits?: ChampionCombatTraits;
+  /** Pasiva: versión reducida con el kit incompleto (sin configurar = 50 % y un objetivo, en la web). */
+  reducedKit?: { off?: boolean; valuePct?: number; singleTarget?: boolean; durationPct?: number; stacksPct?: number; cooldownPct?: number; note?: string };
 };
 
 export type ChampionCombatTraits = {
@@ -1875,6 +1877,18 @@ export function parseAbilityMechanics(value: unknown): ChampionAbilityMechanics 
   }
   const combatTraits = mechanicsObject(source.combatTraits, 'mechanics.combatTraits');
   if (combatTraits) out.combatTraits = parseCombatTraits(combatTraits, 'mechanics.combatTraits');
+  const reducedKit = mechanicsObject(source.reducedKit, 'mechanics.reducedKit');
+  if (reducedKit) {
+    const parsed: NonNullable<ChampionAbilityMechanics['reducedKit']> = {};
+    if (reducedKit.off === true) parsed.off = true;
+    for (const key of ['valuePct', 'durationPct', 'stacksPct'] as const) {
+      if (reducedKit[key] !== undefined && reducedKit[key] !== null) parsed[key] = mechanicsInt(reducedKit[key], `mechanics.reducedKit.${key}`, 0, 100);
+    }
+    if (reducedKit.cooldownPct !== undefined && reducedKit.cooldownPct !== null) parsed.cooldownPct = mechanicsInt(reducedKit.cooldownPct, 'mechanics.reducedKit.cooldownPct', 100, 300);
+    if (typeof reducedKit.singleTarget === 'boolean') parsed.singleTarget = reducedKit.singleTarget;
+    if (typeof reducedKit.note === 'string' && reducedKit.note.trim()) parsed.note = reducedKit.note.trim().slice(0, 300);
+    if (Object.keys(parsed).length) out.reducedKit = parsed;
+  }
   return Object.keys(out).length ? out : undefined;
 }
 
